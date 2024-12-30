@@ -19,78 +19,102 @@ CONSTANT Empty
 (* The variables of the spec.                                                                     *)
 (**************************************************************************************************)
 
-\* The clock, which measures 'time', is just a counter, that increments (ticks) 
-\* whenever a transaction starts or commits.
-VARIABLE clock
+\* \* The clock, which measures 'time', is just a counter, that increments (ticks) 
+\* \* whenever a transaction starts or commits.
+\* VARIABLE clock
 
-\* The set of all currently running transactions.
-VARIABLE runningTxns
+\* \* The set of all currently running transactions.
+\* VARIABLE runningTxns
 
-\* The full history of all transaction operations. It is modeled as a linear 
-\* sequence of events. Such a history would likely never exist in a real implementation, 
-\* but it is used in the model to check the properties of snapshot isolation.
-VARIABLE txnHistory
+\* \* The full history of all transaction operations. It is modeled as a linear 
+\* \* sequence of events. Such a history would likely never exist in a real implementation, 
+\* \* but it is used in the model to check the properties of snapshot isolation.
+\* VARIABLE txnHistory
 
-\* (NOT NECESSARY)
-\* The key-value data store. In this spec, we model a data store explicitly, even though it is not actually
-\* used for the verification of any correctness properties. This was added initially as an attempt the make the
-\* spec more intuitive and understandable. It may play no important role at this point, however. If a property
-\* check was ever added for view serializability, this, and the set of transaction snapshots, may end up being
-\* useful.
-VARIABLE dataStore
+\* \* (NOT NECESSARY)
+\* \* The key-value data store. In this spec, we model a data store explicitly, even though it is not actually
+\* \* used for the verification of any correctness properties. This was added initially as an attempt the make the
+\* \* spec more intuitive and understandable. It may play no important role at this point, however. If a property
+\* \* check was ever added for view serializability, this, and the set of transaction snapshots, may end up being
+\* \* useful.
+\* VARIABLE dataStore
 
-\* (NOT NECESSARY)
-\* The set of snapshots needed for all running transactions. Each snapshot 
-\* represents the entire state of the data store as of a given point in time. 
-\* It is a function from transaction ids to data store snapshots. This, like the 'dataStore' variable, may 
-\* now be obsolete for a spec at this level of abstraction, since the correctness properties we check do not 
-\* depend on the actual data being read/written.
-VARIABLE txnSnapshots
+\* \* (NOT NECESSARY)
+\* \* The set of snapshots needed for all running transactions. Each snapshot 
+\* \* represents the entire state of the data store as of a given point in time. 
+\* \* It is a function from transaction ids to data store snapshots. This, like the 'dataStore' variable, may 
+\* \* now be obsolete for a spec at this level of abstraction, since the correctness properties we check do not 
+\* \* depend on the actual data being read/written.
+\* VARIABLE txnSnapshots
 
-vars == <<clock, runningTxns, txnSnapshots, dataStore, txnHistory>>
+\* vars == <<clock, runningTxns, txnSnapshots, dataStore, txnHistory>>
 
 
-(**************************************************************************************************)
-(* Data type definitions.                                                                         *)
-(**************************************************************************************************)
+\* (**************************************************************************************************)
+\* (* Data type definitions.                                                                         *)
+\* (**************************************************************************************************)
 
-DataStoreType == [keys -> (values \cup {Empty})]
-BeginOpType   == [type : {"begin"}  , txnId : txnIds , time : Nat]
-CommitOpType  == [type : {"commit"} , txnId : txnIds , time : Nat, updatedKeys : SUBSET keys]
-WriteOpType   == [type : {"write"}  , txnId : txnIds , key: SUBSET keys , val : SUBSET values]
-ReadOpType    == [type : {"read"}   , txnId : txnIds , key: SUBSET keys , val : SUBSET values]
-AnyOpType     == UNION {BeginOpType, CommitOpType, WriteOpType, ReadOpType}
+\* DataStoreType == [keys -> (values \cup {Empty})]
+\* BeginOpType   == [type : {"begin"}  , txnId : txnIds , time : Nat]
+\* CommitOpType  == [type : {"commit"} , txnId : txnIds , time : Nat, updatedKeys : SUBSET keys]
+\* WriteOpType   == [type : {"write"}  , txnId : txnIds , key: SUBSET keys , val : SUBSET values]
+\* ReadOpType    == [type : {"read"}   , txnId : txnIds , key: SUBSET keys , val : SUBSET values]
+\* AnyOpType     == UNION {BeginOpType, CommitOpType, WriteOpType, ReadOpType}
 
-(**************************************************************************************************)
-(* The type invariant and initial predicate.                                                      *)
-(**************************************************************************************************)
+\* (**************************************************************************************************)
+\* (* The type invariant and initial predicate.                                                      *)
+\* (**************************************************************************************************)
 
-TypeInvariant == 
-    \* /\ txnHistory \in Seq(AnyOpType) seems expensive to check with TLC, so disable it.
-    /\ dataStore    \in DataStoreType
-    /\ txnSnapshots \in [txnIds -> (DataStoreType \cup {Empty})]
-    /\ runningTxns  \in SUBSET [ id : txnIds, 
-                                 startTime  : Nat, 
-                                 commitTime : Nat \cup {Empty}]
+\* TypeInvariant == 
+\*     \* /\ txnHistory \in Seq(AnyOpType) seems expensive to check with TLC, so disable it.
+\*     /\ dataStore    \in DataStoreType
+\*     /\ txnSnapshots \in [txnIds -> (DataStoreType \cup {Empty})]
+\*     /\ runningTxns  \in SUBSET [ id : txnIds, 
+\*                                  startTime  : Nat, 
+\*                                  commitTime : Nat \cup {Empty}]
 
-Init ==  
-    /\ runningTxns = {} 
-    /\ txnHistory = <<>>
-    /\ clock = 0
-    /\ txnSnapshots = [id \in txnIds |-> Empty]
-    /\ dataStore = [k \in keys |-> Empty]
+\* Init ==  
+\*     /\ runningTxns = {} 
+\*     /\ txnHistory = <<>>
+\*     /\ clock = 0
+\*     /\ txnSnapshots = [id \in txnIds |-> Empty]
+\*     /\ dataStore = [k \in keys |-> Empty]
 
 \* 
-\* using any = std::variant<begin_transaction, breakpoint, checkpoint, checkpoint_crash,
-\*   commit_transaction, crash, create_table, evict, insert, nop, prepare_transaction, remove, restart,
-\*   rollback_to_stable, rollback_transaction, set_commit_timestamp, set_oldest_timestamp,
-\*   set_stable_timestamp, truncate, wt_config>;
+\* using any = std::variant<
+\*   begin_transaction,
+\*   prepare_transaction,
+\*   rollback_transaction, 
+\*   commit_transaction, 
+\*   breakpoint, 
+\*   checkpoint, 
+\*   checkpoint_crash,
+\*   crash, 
+\*   create_table, 
+\*   evict, 
+\*   insert,
+\*   remove, 
+\*   nop, 
+\*   restart,
+\*   rollback_to_stable, 
+\*   set_commit_timestamp, 
+\*   set_oldest_timestamp,
+\*   set_stable_timestamp, 
+\*   truncate, 
+\*   wt_config >;
 \* 
 \* From https://github.com/wiredtiger/wiredtiger/blob/7baa2123eea89c1854d7434ce7bf26dc8fd2a92d/test/model/src/include/model/driver/kv_workload.h#L1117-L1120
 \* 
 
-BeginTransactionAction == 
+
+VARIABLE txnsOpen
+
+BeginTransaction(txnId) == 
     \* TODO: Implement begin transaction action
+    /\ txnsOpen' = txnsOpen \cup {txnId}
+
+InsertAction(txnId, key, value) ==
+    \* TODO: Implement insert action
     TRUE
 
 BreakpointAction ==
@@ -121,9 +145,7 @@ EvictAction ==
     \* TODO: Implement evict action
     TRUE
 
-InsertAction ==
-    \* TODO: Implement insert action
-    TRUE
+
 
 NopAction ==
     \* TODO: Implement no-op action
