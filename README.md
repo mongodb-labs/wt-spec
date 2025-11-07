@@ -1,4 +1,4 @@
-# Model-based verification of WiredTiger
+# Specification of WiredTiger Storage API
 
 
 Modeling the WiredTiger storage layer interface in [`Storage.tla`](Storage.tla) (explore the spec [here](https://will62794.github.io/spectacle/#!/home?specpath=https://raw.githubusercontent.com/will62794/wt-model-based/refs/heads/main/Storage.tla?token=GHSAT0AAAAAAC3VLDY7OVEPBG46GNSPLMHG2IOLMHQ&constants%5BWC%5D=%22majority%22&constants%5BMaxTimestamp%5D=3&constants%5BRC%5D=%22snapshot%22&constants%5BKeys%5D=%7Bk1%2Ck2%7D&constants%5BNoValue%5D=%22NoValue%22&constants%5BMTxId%5D=%7Bt1%2Ct2%7D&constants%5BNil%5D=%22Nil%22&constants%5BNode%5D=%7Bn%7D&constants%5BTimestamps%5D=%7B1%2C2%2C3%7D)).
