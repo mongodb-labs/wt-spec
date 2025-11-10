@@ -21,8 +21,6 @@ CONSTANT Timestamps
 
 CONSTANT NoValue
 
-CONSTANT RC \* read concern.
-
 VARIABLE mlog
 
 VARIABLE mcommitIndex
@@ -122,9 +120,9 @@ SnapshotRead(key, ts) ==
             ELSE [mlogIndex |-> Max(snapshotKeyWrites), value |-> mlog[Max(snapshotKeyWrites)].data[key]]
 
 \* Snapshot of the full KV store at a given index/timestamp.
-SnapshotKV(ts, rc, ignorePrepare) == 
+SnapshotKV(ts, ignorePrepare) == 
     \* Local reads just read at the latest timestamp in the log.
-    LET txnReadTs == IF rc = "snapshot" THEN ts ELSE Len(mlog) IN
+    LET txnReadTs == ts IN
     [
         ts |-> txnReadTs,
         data |-> [k \in Keys |-> SnapshotRead(k, txnReadTs).value],
@@ -245,7 +243,7 @@ PrepareConflict(tid, k) ==
 \* Checks the status of a transaction is OK after it has executed some enabled action.
 TransactionPostOpStatus(tid) == txnStatus'[tid]
 
-StartTransaction(tid, readTs, rc, ignorePrepare) == 
+StartTransaction(tid, readTs, ignorePrepare) == 
     \* Start the transaction on the MDB KV store.
     \* Save a snapshot of the current MongoDB instance at this shard for this transaction to use.
     /\ tid \notin ActiveTransactions
@@ -254,7 +252,7 @@ StartTransaction(tid, readTs, rc, ignorePrepare) ==
     /\ ~mtxnSnapshots[tid]["aborted"]
     \* Don't re-use transaction ids.
     /\ ~\E i \in DOMAIN (mlog) : mlog[i].tid = tid
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid] = SnapshotKV(readTs, rc, ignorePrepare)]
+    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid] = SnapshotKV(readTs, ignorePrepare)]
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ UNCHANGED <<mlog, mcommitIndex, stableTs, oldestTs>>
     /\ allDurableTs' = allDurableTs
@@ -456,7 +454,7 @@ Init ==
 IgnorePrepareOptions == {"false"}
 
 Next == 
-    \/ \E tid \in MTxId, readTs \in Timestamps, ignorePrepare \in IgnorePrepareOptions : StartTransaction(tid, readTs, RC, ignorePrepare)
+    \/ \E tid \in MTxId, readTs \in Timestamps, ignorePrepare \in IgnorePrepareOptions : StartTransaction(tid, readTs, ignorePrepare)
     \/ \E tid \in MTxId, k \in Keys, v \in Values : TransactionWrite(tid, k, v, "false")
     \/ \E tid \in MTxId, k \in Keys, v \in (Values \cup {NoValue}) : TransactionRead(tid, k, v)
     \/ \E tid \in MTxId, k \in Keys : TransactionRemove(tid, k)
