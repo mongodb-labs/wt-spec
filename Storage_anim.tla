@@ -118,7 +118,7 @@ TxnStatusStr(tid) ==
 
 \* Render active/known transactions at node n
 NodeTxnsElem(ox, oy) ==
-    LET tids == SetToSeq(MTxId)
+    LET tids == SetToSeq(TxnId)
         rows == [ i \in DOMAIN tids |->
                   LET tid == tids[i]
                       y == oy + 14*i

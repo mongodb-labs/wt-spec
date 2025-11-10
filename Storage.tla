@@ -16,7 +16,7 @@ EXTENDS Sequences, Naturals, Integers, Util, TLC
 
 
 CONSTANT Keys 
-CONSTANT MTxId
+CONSTANT TxnId
 CONSTANT Timestamps
 
 CONSTANT NoValue
@@ -61,7 +61,7 @@ RCVALUES == {"linearizable",
 LogIndices == Nat \ {0}
 
 \* Make values the same as transaction IDs.
-Values == MTxId
+Values == TxnId
 
 \* The result a read will have if no value can be found.
 NotFoundReadResult == [
@@ -92,10 +92,10 @@ ActiveReadTimestamps == { IF ~mtxnSnapshots[tx]["active"] THEN 0 ELSE mtxnSnapsh
 \* Next timestamp to use for a transaction operation.
 NextTs == Max(PrepareOrCommitTimestamps \cup ActiveReadTimestamps) + 1
 
-ActiveTransactions == {tid \in MTxId : mtxnSnapshots[tid]["active"]}
+ActiveTransactions == {tid \in TxnId : mtxnSnapshots[tid]["active"]}
 PreparedTransactions == {tid \in ActiveTransactions : mtxnSnapshots[tid].prepared}
 
-CommittedTransactions == {tid \in MTxId : mtxnSnapshots[tid]["committed"]}
+CommittedTransactions == {tid \in TxnId : mtxnSnapshots[tid]["committed"]}
 
 \* Currently in this model, where transactions don't set timestamps while they're in progress,
 \* the all_durable will just be the same as the newest committed timestamp.
@@ -141,7 +141,7 @@ SnapshotKV(ts, ignorePrepare) ==
 WriteReadConflictExists(n, tid, k) ==
     \* Exists another running transaction on the same snapshot
     \* that has written to the same key.
-    \E tOther \in MTxId \ {tid}:
+    \E tOther \in TxnId \ {tid}:
         \* Transaction is running. 
         \/ /\ tid \in ActiveTransactions
            /\ tOther \in ActiveTransactions
@@ -153,7 +153,7 @@ WriteReadConflictExists(n, tid, k) ==
 WriteConflictExists(tid, k) ==
     \* Exists another running transaction on the same snapshot
     \* that has written to the same key.
-    \E tOther \in MTxId \ {tid}:
+    \E tOther \in TxnId \ {tid}:
         \* Transaction is running concurrently. 
         \/ /\ tid \in ActiveTransactions
            /\ tOther \in ActiveTransactions
@@ -171,7 +171,7 @@ WriteConflictExists(tid, k) ==
 TxnRead(tid, k) == 
     \* If a prepared transaction has committed behind our snapshot read timestamp
     \* while we were running, then we must observe the effects of its writes.
-    IF  \E tOther \in MTxId \ {tid}:
+    IF  \E tOther \in TxnId \ {tid}:
         \E pmind \in DOMAIN mlog :
         \E cmind \in DOMAIN mlog :
             \* Prepare log entry exists.
@@ -218,7 +218,7 @@ PrepareTxnToLog(tid, prepareTs) ==
 TxnCanStart(tid, readTs) ==
     \* Cannot start a transaction at a timestamp T if there is another 
     \* currently prepared transaction at timestamp < T.
-    ~\E tother \in MTxId :
+    ~\E tother \in TxnId :
         /\ tother \in ActiveTransactions
         /\ mtxnSnapshots[tother].prepared 
         /\ mtxnSnapshots[tother].ts < readTs 
@@ -231,7 +231,7 @@ TxnCanStart(tid, readTs) ==
 
 PrepareConflict(tid, k) ==
     \* Is there another transaction prepared at T <= readTs that has modified this key?
-    \E tother \in MTxId :
+    \E tother \in TxnId :
         /\ tother # tid
         /\ tother \in ActiveTransactions
         /\ mtxnSnapshots[tother].prepared
@@ -258,7 +258,7 @@ StartTransaction(tid, readTs, ignorePrepare) ==
     /\ allDurableTs' = allDurableTs
 
 \* Writes to the local KV store of a shard.
-TransactionWrite(tid, k, v, ignoreWriteConflicts) == 
+TransactionWrite(tid, k, v) == 
     \* The write to this key does not overlap with any writes to the same key
     \* from other, concurrent transactions.
     /\ tid \in ActiveTransactions
@@ -268,13 +268,12 @@ TransactionWrite(tid, k, v, ignoreWriteConflicts) ==
     /\ mtxnSnapshots[tid]["ignorePrepare"] # "true"
     \* Transactions always write their own ID as the value, to uniquely identify their writes.
     /\ v = tid
-    /\ \/ /\ ~WriteConflictExists(tid, k) \/ ignoreWriteConflicts = "true"
+    /\ \/ /\ ~WriteConflictExists(tid, k)
           \* Update the transaction's snapshot data.
           /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k}, 
                                                     ![tid].data[k] = tid]
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
        \/ /\ WriteConflictExists(tid, k)
-          /\ ignoreWriteConflicts = "false"
           \* If there is a write conflict, the transaction must roll back (i.e. it is aborted).
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
           /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["aborted"] = TRUE]
@@ -438,13 +437,13 @@ RollbackToStable ==
 \* Explicit initialization for each state variable.
 Init_mlog == <<>>
 Init_mcommitIndex == 0
-Init_mtxnSnapshots == [t \in MTxId |-> [active |-> FALSE, committed |-> FALSE, aborted |-> FALSE]]
+Init_mtxnSnapshots == [t \in TxnId |-> [active |-> FALSE, committed |-> FALSE, aborted |-> FALSE]]
 
 Init == 
     /\ mlog = <<>>
     /\ mcommitIndex = 0
-    /\ mtxnSnapshots = [t \in MTxId |-> [active |-> FALSE, committed |-> FALSE, aborted |-> FALSE]]
-    /\ txnStatus = [t \in MTxId |-> STATUS_OK]
+    /\ mtxnSnapshots = [t \in TxnId |-> [active |-> FALSE, committed |-> FALSE, aborted |-> FALSE]]
+    /\ txnStatus = [t \in TxnId |-> STATUS_OK]
     /\ stableTs = -1
     /\ oldestTs = -1
     /\ allDurableTs = 0
@@ -454,15 +453,15 @@ Init ==
 IgnorePrepareOptions == {"false"}
 
 Next == 
-    \/ \E tid \in MTxId, readTs \in Timestamps, ignorePrepare \in IgnorePrepareOptions : StartTransaction(tid, readTs, ignorePrepare)
-    \/ \E tid \in MTxId, k \in Keys, v \in Values : TransactionWrite(tid, k, v, "false")
-    \/ \E tid \in MTxId, k \in Keys, v \in (Values \cup {NoValue}) : TransactionRead(tid, k, v)
-    \/ \E tid \in MTxId, k \in Keys : TransactionRemove(tid, k)
-    \/ \E tid \in MTxId, k1,k2 \in Keys : TransactionTruncate(tid, k1, k2)
-    \/ \E tid \in MTxId, prepareTs \in Timestamps : PrepareTransaction(tid, prepareTs)
-    \/ \E tid \in MTxId, commitTs \in Timestamps : CommitTransaction(tid, commitTs)
-    \/ \E tid \in MTxId, commitTs, durableTs \in Timestamps : CommitPreparedTransaction(tid, commitTs, durableTs)
-    \/ \E tid \in MTxId : AbortTransaction(tid)
+    \/ \E tid \in TxnId, readTs \in Timestamps, ignorePrepare \in IgnorePrepareOptions : StartTransaction(tid, readTs, ignorePrepare)
+    \/ \E tid \in TxnId, k \in Keys, v \in Values : TransactionWrite(tid, k, v)
+    \/ \E tid \in TxnId, k \in Keys, v \in (Values \cup {NoValue}) : TransactionRead(tid, k, v)
+    \/ \E tid \in TxnId, k \in Keys : TransactionRemove(tid, k)
+    \/ \E tid \in TxnId, k1,k2 \in Keys : TransactionTruncate(tid, k1, k2)
+    \/ \E tid \in TxnId, prepareTs \in Timestamps : PrepareTransaction(tid, prepareTs)
+    \/ \E tid \in TxnId, commitTs \in Timestamps : CommitTransaction(tid, commitTs)
+    \/ \E tid \in TxnId, commitTs, durableTs \in Timestamps : CommitPreparedTransaction(tid, commitTs, durableTs)
+    \/ \E tid \in TxnId : AbortTransaction(tid)
     \/ \E ts \in Timestamps : SetStableTimestamp(ts)
     \/ \E ts \in Timestamps : SetOldestTimestamp(ts)
     \/ RollbackToStable
@@ -470,6 +469,6 @@ Next ==
 
 ---------------------------------------------------------------------
 
-Symmetry == Permutations(MTxId) \cup Permutations(Keys)
+Symmetry == Permutations(TxnId) \cup Permutations(Keys)
 
 ===============================================================================
