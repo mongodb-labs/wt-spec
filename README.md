@@ -1,7 +1,7 @@
 # Specification of WiredTiger Storage API
 
 
-Modeling the WiredTiger storage layer interface in [`Storage.tla`](Storage.tla) (explore the spec [here](https://will62794.github.io/spectacle/#!/home?specpath=https://raw.githubusercontent.com/will62794/wt-model/refs/heads/main/Storage.tla&constants%5BWC%5D=%22majority%22&constants%5BMaxTimestamp%5D=3&constants%5BRC%5D=%22snapshot%22&constants%5BKeys%5D=%7Bk1%2Ck2%7D&constants%5BNoValue%5D=%22NoValue%22&constants%5BMTxId%5D=%7Bt1%2Ct2%7D&constants%5BNil%5D=%22Nil%22&constants%5BNode%5D=%7Bn%7D&constants%5BTimestamps%5D=%7B1%2C2%2C3%7D)).
+Modeling the WiredTiger storage layer interface in [`Storage.tla`](Storage.tla) (explore the spec [here](https://will62794.github.io/spectacle/#!/home?specpath=https://raw.githubusercontent.com/will62794/wt-model/refs/heads/main/Storage.tla&constants%5BWC%5D=%22majority%22&constants%5BMaxTimestamp%5D=3&constants%5BRC%5D=%22snapshot%22&constants%5BKeys%5D=%7Bk1%2Ck2%7D&constants%5BNoValue%5D=%22NoValue%22&constants%5BTxnId%5D=%7Bt1%2Ct2%7D&constants%5BNil%5D=%22Nil%22&constants%5BNode%5D=%7Bn%7D&constants%5BTimestamps%5D=%7B1%2C2%2C3%7D)).
 
 See operation types from C++ lightweight model-based verification harness [here](https://github.com/wiredtiger/wiredtiger/blob/7baa2123eea89c1854d7434ce7bf26dc8fd2a92d/test/model/src/include/model/driver/kv_workload.h#L1117-L1120).
 
@@ -14,7 +14,7 @@ We have experimented with automated, model-based test case generation for checki
 The basic workflow to generate these test cases from the storage model is implemented in the [`testgen.py`](testgen.py) script e.g. to run a small model with 2 transactions and 2 keys, you can execute the following:
 
 ```bash
-python3 testgen.py --parallel_test_split 4 --compact --constants MTxId "{t1,t2}" Keys "{k1,k2}" Timestamps "{1,2,3}" --coverage_pct 1.0
+python3 testgen.py --parallel_test_split 4 --compact --constants TxnId "{t1,t2}" Keys "{k1,k2}" Timestamps "{1,2,3}" --coverage_pct 1.0
 ```
 this will generate WiredTiger unit tests files in `tests/test_txn_model_traces_*.py` files, which can be directly run against a WiredTiger build.
 
