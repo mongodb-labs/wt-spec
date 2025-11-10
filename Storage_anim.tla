@@ -113,7 +113,7 @@ TxnStatusStr(n, tid) ==
     IF mtxnSnapshots[n][tid].committed THEN "committed"
     ELSE IF mtxnSnapshots[n][tid].aborted THEN "aborted"
     ELSE IF mtxnSnapshots[n][tid].active /\ ~mtxnSnapshots[n][tid].prepared THEN "active"
-    ELSE IF "prepared" in DOMAIN mtxnSnapshots[n][tid] THEN "prepared"
+    ELSE IF "prepared" \in DOMAIN mtxnSnapshots[n][tid] THEN "prepared"
     ELSE "idle"
 
 \* Render active/known transactions at node n
