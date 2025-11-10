@@ -378,12 +378,10 @@ def gen_tla_json_graph(json_graph="states.json", seed=0, specname="Storage", con
         "symmetry": "Symmetry" if symmetry else None,
         # "constraint": "StateConstraint",
         "constants": {
-            "RC": "\"snapshot\"",
             "WC": "\"majority\"",
             "Nil": "Nil",
             "Keys": "{k1,k2}",
-            "MTxId": "{t1,t2}",
-            "Node": "{n}",
+            "TxnId": "{t1,t2}",
             "NoValue": "NoValue",
             "MaxOpsPerTxn": "2",
             "Timestamps": "{1,2,3}",
