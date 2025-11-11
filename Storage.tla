@@ -5,13 +5,13 @@ EXTENDS Sequences, Naturals, Integers, Util, TLC
 \* Formal model of the WiredTiger key-value storage interface.
 \*
 \* This covers many of the core facets of the storage interface utilized by
-\* MongoDB nodes, when executing either single node operations or those
+\* MongoDB nodes, when executing either single node operations or operations
 \* that are a part of a cross-shard, distributed transaction.
 \*
 \* The "return" status of each transaction operation can be checked by a client
 \* by checking the value of the 'txnStatus' variable after the execution of an
 \* action/transition. This is a simple way to emulate the notion of
-\* return/status codes in a standard programming-oriented API.
+\* return/status codes in a standard programming language-oriented API.
 \* 
 
 
@@ -67,15 +67,6 @@ NotFoundReadResult == [
     mlogIndex |-> 0,
     value |-> NoValue
 ]
-
-\* Log entries contain one key-value pair each, modeled as a record
-LogEntries ==
-    [
-        key: Keys,
-        value: Values
-    ]
-
-Logs == Seq(LogEntries)
 
 Max(S) == CHOOSE x \in S : \A y \in S : x >= y
 
