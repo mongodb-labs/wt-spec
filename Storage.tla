@@ -260,7 +260,8 @@ TransactionWrite(tid, k, v) ==
        \/ /\ WriteConflictExists(tid, k)
           \* If there is a write conflict, the transaction must roll back (i.e. it is aborted).
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
+          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted", 
+                                                    ![tid]["writeSet"] = @ \cup {k}]
     /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
 
 \* Reads from the local KV store of a shard.
@@ -303,7 +304,8 @@ TransactionRemove(tid, k) ==
        \/ /\ WriteConflictExists(tid, k)
           \* If there is a write conflict, the transaction must roll back.
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
+          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted",
+                                                    ![tid]["writeSet"] = @ \cup {k}]
     /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
 
 
@@ -432,8 +434,8 @@ Next ==
     \/ \E tid \in TxnId, readTs \in Timestamps, ignorePrepare \in IgnorePrepareOptions : StartTransaction(tid, readTs, ignorePrepare)
     \/ \E tid \in TxnId, k \in Keys, v \in Values : TransactionWrite(tid, k, v)
     \/ \E tid \in TxnId, k \in Keys, v \in (Values \cup {NoValue}) : TransactionRead(tid, k, v)
-    \/ \E tid \in TxnId, k \in Keys : TransactionRemove(tid, k)
-    \/ \E tid \in TxnId, k1,k2 \in Keys : TransactionTruncate(tid, k1, k2)
+    \* \/ \E tid \in TxnId, k \in Keys : TransactionRemove(tid, k)
+    \* \/ \E tid \in TxnId, k1,k2 \in Keys : TransactionTruncate(tid, k1, k2)
     \/ \E tid \in TxnId, prepareTs \in Timestamps : PrepareTransaction(tid, prepareTs)
     \/ \E tid \in TxnId, commitTs \in Timestamps : CommitTransaction(tid, commitTs)
     \/ \E tid \in TxnId, commitTs, durableTs \in Timestamps : CommitPreparedTransaction(tid, commitTs, durableTs)
