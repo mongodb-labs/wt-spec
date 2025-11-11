@@ -2,15 +2,15 @@
 EXTENDS Sequences, Naturals, Integers, Util, TLC
 
 \* 
-\* Abstract model of single MongoDB node using WiredTiger storage instance.
-\* 
-\* This should more or less be the abstract transaction interface each shard
-\* needs to consider when executing transactions that are part of distributed,
-\* cross-shard transaction.
-\* 
-\* Status of each transaction operation can be "returned"/checked by a client
-\* by checking the value of the 'txnStatus' variable after the execution of
-\* an action/transition. This is a simple way to emulate the notion of
+\* Formal model of the WiredTiger key-value storage interface.
+\*
+\* This covers many of the core facets of the storage interface utilized by
+\* MongoDB nodes, when executing either single node operations or those
+\* that are a part of a cross-shard, distributed transaction.
+\*
+\* The "return" status of each transaction operation can be checked by a client
+\* by checking the value of the 'txnStatus' variable after the execution of an
+\* action/transition. This is a simple way to emulate the notion of
 \* return/status codes in a standard programming-oriented API.
 \* 
 
@@ -20,6 +20,7 @@ CONSTANT TxnId
 CONSTANT Timestamps
 
 CONSTANT NoValue
+
 
 VARIABLE mlog
 
