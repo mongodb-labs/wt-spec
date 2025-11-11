@@ -260,7 +260,7 @@ TransactionWrite(tid, k, v) ==
        \/ /\ WriteConflictExists(tid, k)
           \* If there is a write conflict, the transaction must roll back (i.e. it is aborted).
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["aborted"] = TRUE]
+          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
     /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
 
 \* Reads from the local KV store of a shard.
@@ -303,7 +303,7 @@ TransactionRemove(tid, k) ==
        \/ /\ WriteConflictExists(tid, k)
           \* If there is a write conflict, the transaction must roll back.
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["aborted"] = TRUE]
+          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
     /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
 
 
@@ -382,7 +382,7 @@ TransactionTruncate(tid, k1, k2) ==
        \/ /\ WriteConflictExists(tid, k1)
           \* If there is a write conflict, the transaction must roll back.
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["aborted"] = TRUE]
+          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
     /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
 
 AbortTransaction(tid) == 
