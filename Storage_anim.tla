@@ -52,60 +52,26 @@ TxnStatusStr(tid) ==
     ELSE IF mtxnSnapshots[tid]["state"] = "prepared" THEN "prepared"
     ELSE "idle"
 
-\* Helper: Get the commit timestamp for a transaction from mlog, if present.
-TxnCommitTs(tid) ==
-    LET e == CHOOSE i \in DOMAIN mlog :
-                ("tid" \in DOMAIN mlog[i]) /\ mlog[i].tid = tid /\
-                ("ts" \in DOMAIN mlog[i]) /\ ("data" \in DOMAIN mlog[i])
-    IN IF e \in DOMAIN mlog THEN mlog[e].ts ELSE "-"
-
-\* Helper: Get the prepare timestamp for a transaction from mlog, if present.
-TxnPrepareTs(tid) ==
-    LET e == CHOOSE i \in DOMAIN mlog :
-                ("tid" \in DOMAIN mlog[i]) /\ mlog[i].tid = tid /\
-                ("prepare" \in DOMAIN mlog[i])
-    IN IF e \in DOMAIN mlog THEN mlog[e].prepareTs ELSE "-"
-
-\* Render a simple timeline for a transaction: Start --- Prepare? --- Commit?
-TxnTimeline(tid) ==
-    LET snap == mtxnSnapshots[tid]
-        startTsStr == IF "ts" \in DOMAIN snap THEN ToString(snap.ts) ELSE "-"
-        prepareTsStr ==
-            LET pTs == TxnPrepareTs(tid)
-            IN IF pTs # "-" THEN ToString(pTs) ELSE ""
-        commitTsStr ==
-            LET cTs == TxnCommitTs(tid)
-            IN IF cTs # "-" THEN ToString(cTs) ELSE ""
-        timelineStr ==
-            "⟦" \o startTsStr \o
-            IF prepareTsStr # ""
-                THEN " ⇝ " \o prepareTsStr
-                ELSE ""
-            \o IF commitTsStr # ""
-                THEN " ⇝ " \o commitTsStr
-                ELSE ""
-            \o "⟧"
-    IN timelineStr
-
-\* Render active/known transactions at node n, showing a simple timeline
+\* Render active/known transactions at node n
 NodeTxnsElem(ox, oy) ==
     LET tids == SetToSeq(TxnId)
         rows == [ i \in DOMAIN tids |->
                   LET tid == tids[i]
-                      y == oy + 22*i
+                      y == oy + 14*i
                       snap == mtxnSnapshots[tid]
                       status == TxnStatusStr(tid)
-                      timeline == TxnTimeline(tid)
-                      label == "txn " \o ToString(tid) \o ": " \o status \o "  " \o timeline
+                      tsStr == IF "ts" \in DOMAIN snap THEN ToString(snap.ts) ELSE "-"
+                      prepStr == IF snap["state"] = "prepared" THEN "/ prepTs=" \o ToString(snap.prepareTs) ELSE ""
+                      label == "txn " \o ToString(tid) \o ": " \o status \o (IF snap["state"] = "active" THEN (" ts=" \o tsStr \o prepStr) ELSE "")
                   IN Text(ox, y, label, ("font-size" :> "10px")) ]
-    IN Group(<<Text(ox, oy, "txns[" \o "timeline ⟦start⇝prep⇝commit⟧" \o "]", ("font-weight" :> "bold"))>> \o SetToSeq(Range(rows)), <<>>)
+    IN Group(<<Text(ox, oy, "txns[" \o "]", ("font-weight" :> "bold"))>> \o SetToSeq(Range(rows)), <<>>)
 
 \* Layout for a single node panel
 NodePanel(idx) ==
     LET baseX == 20 + 360*(idx-1)
         baseY == 20
     IN Group(<<
-        Rect(baseX-10, baseY-10, 340, 230, ("fill" :> "#f9f9f9" @@ "stroke" :> "#ddd")),
+        Rect(baseX-10, baseY-10, 340, 220, ("fill" :> "#f9f9f9" @@ "stroke" :> "#ddd")),
         Text(baseX, baseY-20, "Node", ("font-weight" :> "bold")),
         NodeTsElem(baseX, baseY),
         NodeLogElem(baseX, baseY+50),
