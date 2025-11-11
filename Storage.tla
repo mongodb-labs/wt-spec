@@ -87,15 +87,14 @@ CommitEntries(lg) == {e \in Range(lg) : ("ts" \in DOMAIN e) /\ ("prepare" \notin
 CommitOnlyTimestamps(lg) == {e.ts : e \in CommitEntries(lg)}
 CommitTimestamps == {mlog[i].ts : i \in DOMAIN mlog}
 
-ActiveReadTimestamps == { IF ~mtxnSnapshots[tx]["active"] THEN 0 ELSE mtxnSnapshots[tx].ts : tx \in DOMAIN mtxnSnapshots}
+ActiveReadTimestamps == { IF ~mtxnSnapshots[tx]["state"] = "active" THEN 0 ELSE mtxnSnapshots[tx].ts : tx \in DOMAIN mtxnSnapshots}
 
 \* Next timestamp to use for a transaction operation.
 NextTs == Max(PrepareOrCommitTimestamps \cup ActiveReadTimestamps) + 1
 
-ActiveTransactions == {tid \in TxnId : mtxnSnapshots[tid]["active"]}
-PreparedTransactions == {tid \in ActiveTransactions : mtxnSnapshots[tid].prepared}
-
-CommittedTransactions == {tid \in TxnId : mtxnSnapshots[tid]["committed"]}
+ActiveTransactions == {tid \in TxnId : mtxnSnapshots[tid]["state"] \in {"active", "prepared"}}
+PreparedTransactions == {tid \in ActiveTransactions : mtxnSnapshots[tid]["state"] = "prepared"}
+CommittedTransactions == {tid \in TxnId : mtxnSnapshots[tid]["state"] = "committed"}
 
 \* Currently in this model, where transactions don't set timestamps while they're in progress,
 \* the all_durable will just be the same as the newest committed timestamp.
@@ -126,13 +125,10 @@ SnapshotKV(ts, ignorePrepare) ==
     [
         ts |-> txnReadTs,
         data |-> [k \in Keys |-> SnapshotRead(k, txnReadTs).value],
-        prepared |-> FALSE,
         prepareTs |-> 0,
-        aborted |-> FALSE,
-        committed |-> FALSE,
+        state |-> "active",
         readSet |-> {},
         writeSet |-> {},
-        active |-> TRUE,
         ignorePrepare |-> ignorePrepare
     ]
     
@@ -220,7 +216,7 @@ TxnCanStart(tid, readTs) ==
     \* currently prepared transaction at timestamp < T.
     ~\E tother \in TxnId :
         /\ tother \in ActiveTransactions
-        /\ mtxnSnapshots[tother].prepared 
+        /\ mtxnSnapshots[tother]["state"] = "prepared" 
         /\ mtxnSnapshots[tother].ts < readTs 
 
 \* TODO/Question: If a transaction T1 starts at ts > P, and another transaction
@@ -234,7 +230,7 @@ PrepareConflict(tid, k) ==
     \E tother \in TxnId :
         /\ tother # tid
         /\ tother \in ActiveTransactions
-        /\ mtxnSnapshots[tother].prepared
+        /\ mtxnSnapshots[tother]["state"] = "prepared"
         /\ k \in SnapshotUpdatedKeys(tother)
         /\ mtxnSnapshots[tother].prepareTs <= mtxnSnapshots[tid].ts
 
@@ -248,8 +244,7 @@ StartTransaction(tid, readTs, ignorePrepare) ==
     \* Save a snapshot of the current MongoDB instance at this shard for this transaction to use.
     /\ tid \notin ActiveTransactions
     \* Only run transactions for a given transactionid once.
-    /\ ~mtxnSnapshots[tid]["committed"]
-    /\ ~mtxnSnapshots[tid]["aborted"]
+    /\ mtxnSnapshots[tid]["state"] \notin {"committed", "aborted"}
     \* Don't re-use transaction ids.
     /\ ~\E i \in DOMAIN (mlog) : mlog[i].tid = tid
     /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid] = SnapshotKV(readTs, ignorePrepare)]
@@ -263,7 +258,6 @@ TransactionWrite(tid, k, v) ==
     \* from other, concurrent transactions.
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
-    /\ ~mtxnSnapshots[tid]["aborted"]
     \* Transactions that ignore prepare cannot perform updates, though those with "force" can.
     /\ mtxnSnapshots[tid]["ignorePrepare"] # "true"
     \* Transactions always write their own ID as the value, to uniquely identify their writes.
@@ -283,7 +277,6 @@ TransactionWrite(tid, k, v) ==
 TransactionRead(tid, k, v) ==
     /\ tid \in ActiveTransactions    
     /\ tid \notin PreparedTransactions
-    /\ ~mtxnSnapshots[tid]["aborted"]
     /\ v = TxnRead(tid, k)
     /\ \/ /\ ~PrepareConflict(tid, k) \/ mtxnSnapshots[tid]["ignorePrepare"] \in {"true", "force"}
           /\ v # NoValue
@@ -305,7 +298,6 @@ TransactionRead(tid, k, v) ==
 TransactionRemove(tid, k) ==
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
-    /\ ~mtxnSnapshots[tid]["aborted"]
     /\ mtxnSnapshots[tid]["ignorePrepare"] = "false"
     /\ \/ /\ ~WriteConflictExists(tid, k)
           /\ TxnRead(tid, k) # NoValue 
@@ -336,13 +328,12 @@ CommitTransaction(tid, commitTs) ==
     /\ commitTs > stableTs 
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
-    /\ ~mtxnSnapshots[tid]["aborted"]
     \* Must be greater than the newest known commit timestamp.
     /\ (ActiveReadTimestamps \cup CommitTimestamps) # {} => commitTs > Max(ActiveReadTimestamps \cup CommitTimestamps)
     \* /\ ActiveReadTimestamps(n) # {} => commitTs > Max(ActiveReadTimestamps(n)) \* TODO: Check this condition against WT behavior.
     \* Commit the transaction on the KV store and write all updated keys back to the log.
     /\ mlog' = CommitTxnToLog(tid, commitTs)
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["active"] = FALSE, ![tid]["committed"] = TRUE]
+    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "committed"]
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ allDurableTs' = allDurableTs
     /\ UNCHANGED <<mcommitIndex, stableTs, oldestTs>>
@@ -354,13 +345,12 @@ CommitPreparedTransaction(tid, commitTs, durableTs) ==
     /\ commitTs > stableTs 
     /\ tid \in ActiveTransactions
     /\ tid \in PreparedTransactions
-    /\ ~mtxnSnapshots[tid]["aborted"]
     \* Commit timestamp must be at least as new as the prepare timestamp. Note
     \* that for prepared (i.e. distributed) transactions, though, commit
     \* timestamps may be chosen older than active read timestamps.
     /\ commitTs >= mtxnSnapshots[tid].prepareTs
     /\ mlog' = CommitTxnToLogWithDurable(tid, commitTs, durableTs)
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["active"] = FALSE, ![tid]["committed"] = TRUE]
+    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "committed"]
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ allDurableTs' = allDurableTs
     /\ UNCHANGED <<mcommitIndex, stableTs, oldestTs>>
@@ -370,8 +360,7 @@ PrepareTransaction(tid, prepareTs) ==
     \* invalid commit timestamps w.r.t stable timestamp (?)
     /\ prepareTs > stableTs
     /\ tid \in ActiveTransactions
-    /\ ~mtxnSnapshots[tid]["prepared"]
-    /\ ~mtxnSnapshots[tid]["aborted"]
+    /\ tid \notin PreparedTransactions
     \* Prepare timestamp mustn't be less than any active read timestamp
     \* (includes our own). For now, in this model, we impose the condition that
     \* prepare timesatmps are strictly greater than any read timestamp. This
@@ -379,7 +368,7 @@ PrepareTransaction(tid, prepareTs) ==
     \* API, but we enforce it for now since we expect MongoDB distributed
     \* transactions to obey this same contract.
     /\ prepareTs > Max(ActiveReadTimestamps)
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["prepared"] = TRUE, ![tid]["prepareTs"] = prepareTs]
+    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "prepared", ![tid]["prepareTs"] = prepareTs]
     /\ mlog' = PrepareTxnToLog(tid, prepareTs)
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ UNCHANGED <<mcommitIndex, stableTs, oldestTs, allDurableTs>>
@@ -388,7 +377,6 @@ PrepareTransaction(tid, prepareTs) ==
 TransactionTruncate(tid, k1, k2) ==
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
-    /\ ~mtxnSnapshots[tid]["aborted"]
     /\ mtxnSnapshots[tid]["ignorePrepare"] = "false"
     /\ \/ /\ ~WriteConflictExists(tid, k1)
           /\ TxnRead(tid, k1) # NoValue 
@@ -409,7 +397,7 @@ TransactionTruncate(tid, k1, k2) ==
 
 AbortTransaction(tid) == 
     /\ tid \in ActiveTransactions
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["active"] = FALSE, ![tid]["aborted"] = TRUE]
+    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ UNCHANGED <<mlog, mcommitIndex, stableTs, oldestTs, allDurableTs>>
 
@@ -442,7 +430,7 @@ Init_mtxnSnapshots == [t \in TxnId |-> [active |-> FALSE, committed |-> FALSE, a
 Init == 
     /\ mlog = <<>>
     /\ mcommitIndex = 0
-    /\ mtxnSnapshots = [t \in TxnId |-> [active |-> FALSE, committed |-> FALSE, aborted |-> FALSE]]
+    /\ mtxnSnapshots = [t \in TxnId |-> [state |-> "init"]]
     /\ txnStatus = [t \in TxnId |-> STATUS_OK]
     /\ stableTs = -1
     /\ oldestTs = -1

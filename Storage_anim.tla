@@ -111,8 +111,8 @@ NodeTsElem(ox, oy) ==
 \* Determine a concise status string for a txn at node n
 TxnStatusStr(tid) ==
     IF mtxnSnapshots[tid].committed THEN "committed"
-    ELSE IF mtxnSnapshots[tid].aborted THEN "aborted"
-    ELSE IF mtxnSnapshots[tid].active /\ ~mtxnSnapshots[tid].prepared THEN "active"
+    ELSE IF mtxnSnapshots[tid]["state"] = "aborted" THEN "aborted"
+    ELSE IF mtxnSnapshots[tid]["state"] = "active" /\ ~mtxnSnapshots[tid].prepared THEN "active"
     ELSE IF "prepared" \in DOMAIN mtxnSnapshots[tid] THEN "prepared"
     ELSE "idle"
 
