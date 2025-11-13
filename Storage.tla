@@ -22,10 +22,10 @@ CONSTANT Timestamps
 CONSTANT NoValue
 
 
-VARIABLE mlog
+VARIABLE txnLog
 
 \* Stores snapshots for running transactions on the underlying MongoDB instance.
-VARIABLE mtxnSnapshots
+VARIABLE txnSnapshots
 
 \* Stores latest operation status for each operation of a transaction (e.g.
 \* records error codes, etc.)
@@ -40,7 +40,7 @@ VARIABLE oldestTs
 \* Tracks the global "all durable timestamp" within the storage layer.
 VARIABLE allDurableTs
 
-vars == <<mlog, mtxnSnapshots, txnStatus, stableTs, oldestTs, allDurableTs>>
+vars == <<txnLog, txnSnapshots, txnStatus, stableTs, oldestTs, allDurableTs>>
 
 
 \* Status codes for transaction operations.
@@ -64,7 +64,7 @@ Values == TxnId
 
 \* The result a read will have if no value can be found.
 NotFoundReadResult == [
-    mlogIndex |-> 0,
+    txnLogIndex |-> 0,
     value |-> NoValue
 ]
 
@@ -72,23 +72,23 @@ Max(S) == CHOOSE x \in S : \A y \in S : x >= y
 
 --------------------------------------------------------
 
-PrepareOrCommitTimestamps == {IF "ts" \in DOMAIN e THEN e.ts ELSE  0 : e \in Range(mlog)}
+PrepareOrCommitTimestamps == {IF "ts" \in DOMAIN e THEN e.ts ELSE  0 : e \in Range(txnLog)}
 CommitEntries(lg) == {e \in Range(lg) : ("ts" \in DOMAIN e) /\ ("prepare" \notin DOMAIN e)}
 CommitOnlyTimestamps(lg) == {e.ts : e \in CommitEntries(lg)}
-CommitTimestamps == {mlog[i].ts : i \in DOMAIN mlog}
+CommitTimestamps == {txnLog[i].ts : i \in DOMAIN txnLog}
 
-ActiveReadTimestamps == { IF mtxnSnapshots[tx]["state"] = "init" THEN 0 ELSE mtxnSnapshots[tx].ts : tx \in DOMAIN mtxnSnapshots}
+ActiveReadTimestamps == { IF txnSnapshots[tx]["state"] = "init" THEN 0 ELSE txnSnapshots[tx].ts : tx \in DOMAIN txnSnapshots}
 
 \* Next timestamp to use for a transaction operation.
 NextTs == Max(PrepareOrCommitTimestamps \cup ActiveReadTimestamps) + 1
 
-ActiveTransactions == {tid \in TxnId : mtxnSnapshots[tid]["state"] \in {"active", "prepared"}}
-PreparedTransactions == {tid \in ActiveTransactions : mtxnSnapshots[tid]["state"] = "prepared"}
-CommittedTransactions == {tid \in TxnId : mtxnSnapshots[tid]["state"] = "committed"}
+ActiveTransactions == {tid \in TxnId : txnSnapshots[tid]["state"] \in {"active", "prepared"}}
+PreparedTransactions == {tid \in ActiveTransactions : txnSnapshots[tid]["state"] = "prepared"}
+CommittedTransactions == {tid \in TxnId : txnSnapshots[tid]["state"] = "committed"}
 
 \* Currently in this model, where transactions don't set timestamps while they're in progress,
 \* the all_durable will just be the same as the newest committed timestamp.
-AllDurableTs == IF CommittedTransactions = {} THEN 0 ELSE Max(CommitOnlyTimestamps(mlog'))
+AllDurableTs == IF CommittedTransactions = {} THEN 0 ELSE Max(CommitOnlyTimestamps(txnLog'))
 
 \* 
 \* Perform a snapshot read of a given key at timestamp.
@@ -99,14 +99,14 @@ AllDurableTs == IF CommittedTransactions = {} THEN 0 ELSE Max(CommitOnlyTimestam
 \* 
 SnapshotRead(key, ts) == 
     LET snapshotKeyWrites == 
-        { i \in DOMAIN mlog :
-            /\ "data" \in DOMAIN mlog[i] \* exclude 'prepare' entries.
-            /\ \E k \in DOMAIN mlog[i].data : k = key
+        { i \in DOMAIN txnLog :
+            /\ "data" \in DOMAIN txnLog[i] \* exclude 'prepare' entries.
+            /\ \E k \in DOMAIN txnLog[i].data : k = key
             \* Determine read visibility based on commit timestamp.
-            /\ mlog[i].ts <= ts } IN
+            /\ txnLog[i].ts <= ts } IN
         IF snapshotKeyWrites = {}
             THEN NotFoundReadResult
-            ELSE [mlogIndex |-> Max(snapshotKeyWrites), value |-> mlog[Max(snapshotKeyWrites)].data[key]]
+            ELSE [txnLogIndex |-> Max(snapshotKeyWrites), value |-> txnLog[Max(snapshotKeyWrites)].data[key]]
 
 \* Snapshot of the full KV store at a given index/timestamp.
 SnapshotKV(tid, uid, ts, ignorePrepare) == 
@@ -121,7 +121,7 @@ SnapshotKV(tid, uid, ts, ignorePrepare) ==
         readSet |-> {},
         writeSet |-> {},
         ignorePrepare |-> ignorePrepare,
-        concurrentTxns |-> {tc \in TxnId \ {tid} : mtxnSnapshots[tc]["state"] \in {"active", "prepared"}}
+        concurrentTxns |-> {tc \in TxnId \ {tid} : txnSnapshots[tc]["state"] \in {"active", "prepared"}}
     ]
     
 
@@ -134,22 +134,22 @@ WriteReadConflictExists(n, tid, k) ==
         \/ /\ tid \in ActiveTransactions
            /\ tOther \in ActiveTransactions
            \* The other transaction is on the same snapshot and read this value.
-           /\ mtxnSnapshots[tOther].ts = mtxnSnapshots[tOther].ts
-           /\ k \in mtxnSnapshots[tOther].readSet
+           /\ txnSnapshots[tOther].ts = txnSnapshots[tOther].ts
+           /\ k \in txnSnapshots[tOther].readSet
 
 PreparedTxnWroteKeyBehindMe(tOther, tid, k) ==
     \* \E tOther \in TxnId \ {tid}:
-    \E pmind, cmind \in DOMAIN mlog :
+    \E pmind, cmind \in DOMAIN txnLog :
         \* Prepare log entry exists.
-        /\ "prepare" \in DOMAIN mlog[pmind]
-        /\ mlog[pmind].tid = tOther
+        /\ "prepare" \in DOMAIN txnLog[pmind]
+        /\ txnLog[pmind].tid = tOther
         \* Commit log entry exists and is at timestamp <= our snapshot.
-        /\ "data" \in DOMAIN mlog[cmind]
-        /\ mlog[cmind].tid = tOther
-        /\ mlog[cmind].ts <= mtxnSnapshots[tid].ts
-        /\ k \in DOMAIN mlog[cmind].data
+        /\ "data" \in DOMAIN txnLog[cmind]
+        /\ txnLog[cmind].tid = tOther
+        /\ txnLog[cmind].ts <= txnSnapshots[tid].ts
+        /\ k \in DOMAIN txnLog[cmind].data
         \* If we wrote to this key within our transaction, then we will always read our latest write.
-        \* /\ k \notin mtxnSnapshots[tid].writeSet
+        \* /\ k \notin txnSnapshots[tid].writeSet
 
 \* Does a write conflict exist for this transaction's write to a given key.
 \* 
@@ -162,11 +162,11 @@ WriteConflictExists(tid, k) ==
     \E tOther \in TxnId \ {tid}:
         \* Transaction wrote to this key and is not visible in our snapshot.
         \/ /\ tid \in ActiveTransactions
-           /\ mtxnSnapshots[tOther]["state"] # "init" 
-           /\ k \in mtxnSnapshots[tOther].writeSet
-           /\ \/ mtxnSnapshots[tOther].uid > mtxnSnapshots[tid].uid
+           /\ txnSnapshots[tOther]["state"] # "init" 
+           /\ k \in txnSnapshots[tOther].writeSet
+           /\ \/ txnSnapshots[tOther].uid > txnSnapshots[tid].uid
               \* A transaction not in your snapshot wrote to the key.   
-              \/ tOther \in mtxnSnapshots[tid]["concurrentTxns"] 
+              \/ tOther \in txnSnapshots[tid]["concurrentTxns"] 
            \* Also not the case that this was a prepared transaction that now committed into our snapshot.
            \* We also don't conflict with a prepared transaction update that is now visible to us.
            /\ ~PreparedTxnWroteKeyBehindMe(tOther, tid, k)
@@ -174,66 +174,66 @@ WriteConflictExists(tid, k) ==
         \* committed at a timestamp newer than your snapshot, this also should
         \* manifest as a conflict, since it implies this transaction may have
         \* overlapped with you (in timestamp order).
-        \/ \E ind \in DOMAIN mlog :
-            /\ "data" \in DOMAIN mlog[ind]
-            /\ mlog[ind].ts > mtxnSnapshots[tid].ts
-            /\ k \in (DOMAIN mlog[ind].data)
+        \/ \E ind \in DOMAIN txnLog :
+            /\ "data" \in DOMAIN txnLog[ind]
+            /\ txnLog[ind].ts > txnSnapshots[tid].ts
+            /\ k \in (DOMAIN txnLog[ind].data)
 
 
 TxnRead(tid, k) == 
     \* If a prepared transaction has committed behind our snapshot read timestamp
     \* while we were running, then we must observe the effects of its writes.
     IF  \E tOther \in TxnId \ {tid}:
-        \E pmind \in DOMAIN mlog :
-        \E cmind \in DOMAIN mlog :
+        \E pmind \in DOMAIN txnLog :
+        \E cmind \in DOMAIN txnLog :
             \* Prepare log entry exists.
-            /\ "prepare" \in DOMAIN mlog[pmind]
-            /\ mlog[pmind].tid = tOther
+            /\ "prepare" \in DOMAIN txnLog[pmind]
+            /\ txnLog[pmind].tid = tOther
             \* Commit log entry exists and is at timestamp <= our snapshot.
-            /\ "data" \in DOMAIN mlog[cmind]
-            /\ mlog[cmind].tid = tOther
-            /\ mlog[cmind].ts <= mtxnSnapshots[tid].ts
-            /\ k \in DOMAIN mlog[cmind].data
+            /\ "data" \in DOMAIN txnLog[cmind]
+            /\ txnLog[cmind].tid = tOther
+            /\ txnLog[cmind].ts <= txnSnapshots[tid].ts
+            /\ k \in DOMAIN txnLog[cmind].data
             \* If we wrote to this key within our transaction, then we will always read our latest write.
-            /\ k \notin mtxnSnapshots[tid].writeSet
+            /\ k \notin txnSnapshots[tid].writeSet
         \* Snapshot read directly from the log.
-        THEN SnapshotRead(k, mtxnSnapshots[tid].ts).value 
+        THEN SnapshotRead(k, txnSnapshots[tid].ts).value 
         \* Just read from your stored snapshot.
-        ELSE mtxnSnapshots[tid].data[k]
+        ELSE txnSnapshots[tid].data[k]
 
-UpdateSnapshot(tid, k, v) == [mtxnSnapshots EXCEPT ![tid].data[k] = v]
+UpdateSnapshot(tid, k, v) == [txnSnapshots EXCEPT ![tid].data[k] = v]
 
 SnapshotUpdatedKeys(tid) == {
     k \in Keys : 
         /\ tid \in ActiveTransactions
-        /\ k \in mtxnSnapshots[tid]["writeSet"]
+        /\ k \in txnSnapshots[tid]["writeSet"]
 }
 
 CommitLogEntry(tid, commitTs) == [
-    data |-> [key \in SnapshotUpdatedKeys(tid) |-> mtxnSnapshots[tid].data[key]],
+    data |-> [key \in SnapshotUpdatedKeys(tid) |-> txnSnapshots[tid].data[key]],
     ts |-> commitTs, 
     tid |-> tid
 ]
 
 CommitTxnToLog(tid, commitTs) == 
     \* Even for read only transactions, we write a no-op to the log.
-    Append(mlog, CommitLogEntry(tid, commitTs))
+    Append(txnLog, CommitLogEntry(tid, commitTs))
 
 CommitTxnToLogWithDurable(tid, commitTs, durableTs) == 
     \* Even for read only transactions, we write a no-op to the log.
-    Append(mlog, CommitLogEntry(tid, commitTs) @@ [durableTs |-> durableTs])
+    Append(txnLog, CommitLogEntry(tid, commitTs) @@ [durableTs |-> durableTs])
 
 
 PrepareTxnToLog(tid, prepareTs) ==
-    Append(mlog, [prepare |-> TRUE, ts |-> prepareTs, tid |-> tid])
+    Append(txnLog, [prepare |-> TRUE, ts |-> prepareTs, tid |-> tid])
 
 TxnCanStart(tid, readTs) ==
     \* Cannot start a transaction at a timestamp T if there is another 
     \* currently prepared transaction at timestamp < T.
     ~\E tother \in TxnId :
         /\ tother \in ActiveTransactions
-        /\ mtxnSnapshots[tother]["state"] = "prepared" 
-        /\ mtxnSnapshots[tother].ts < readTs 
+        /\ txnSnapshots[tother]["state"] = "prepared" 
+        /\ txnSnapshots[tother].ts < readTs 
 
 \* TODO/Question: If a transaction T1 starts at ts > P, and another transaction
 \* then prepares after this at P, it appears that reads in WiredTiger from T1
@@ -246,9 +246,9 @@ PrepareConflict(tid, k) ==
     \E tother \in TxnId :
         /\ tother # tid
         /\ tother \in ActiveTransactions
-        /\ mtxnSnapshots[tother]["state"] = "prepared"
+        /\ txnSnapshots[tother]["state"] = "prepared"
         /\ k \in SnapshotUpdatedKeys(tother)
-        /\ mtxnSnapshots[tother].prepareTs <= mtxnSnapshots[tid].ts
+        /\ txnSnapshots[tother].prepareTs <= txnSnapshots[tid].ts
 
 ---------------------------------------------------------------------
 
@@ -256,19 +256,19 @@ PrepareConflict(tid, k) ==
 TransactionPostOpStatus(tid) == txnStatus'[tid]
 
 \* Globally unique, monotonically increasing identifier for a transaction.
-NextUID == Max({IF mtxnSnapshots[t]["state"] # "init" THEN mtxnSnapshots[t]["uid"] ELSE 0 : t \in DOMAIN mtxnSnapshots}) + 1
+NextUID == Max({IF txnSnapshots[t]["state"] # "init" THEN txnSnapshots[t]["uid"] ELSE 0 : t \in DOMAIN txnSnapshots}) + 1
 
 StartTransaction(tid, readTs, ignorePrepare) == 
     \* Start the transaction on the MDB KV store.
     \* Save a snapshot of the current MongoDB instance at this shard for this transaction to use.
     /\ tid \notin ActiveTransactions
     \* Only run transactions for a given transactionid once.
-    /\ mtxnSnapshots[tid]["state"] \notin {"committed", "aborted"}
+    /\ txnSnapshots[tid]["state"] \notin {"committed", "aborted"}
     \* Don't re-use transaction ids.
-    /\ ~\E i \in DOMAIN (mlog) : mlog[i].tid = tid
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid] = SnapshotKV(tid, NextUID, readTs, ignorePrepare)]
+    /\ ~\E i \in DOMAIN (txnLog) : txnLog[i].tid = tid
+    /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid] = SnapshotKV(tid, NextUID, readTs, ignorePrepare)]
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
-    /\ UNCHANGED <<mlog, stableTs, oldestTs>>
+    /\ UNCHANGED <<txnLog, stableTs, oldestTs>>
     /\ allDurableTs' = allDurableTs
 
 \* Writes to the local KV store of a shard.
@@ -278,62 +278,62 @@ TransactionWrite(tid, k, v) ==
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
     \* Transactions that ignore prepare cannot perform updates, though those with "force" can.
-    /\ mtxnSnapshots[tid]["ignorePrepare"] # "true"
+    /\ txnSnapshots[tid]["ignorePrepare"] # "true"
     \* Transactions always write their own ID as the value, to uniquely identify their writes.
     /\ v = tid
     /\ \/ /\ ~WriteConflictExists(tid, k)
           \* Update the transaction's snapshot data.
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k}, 
+          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k}, 
                                                     ![tid].data[k] = tid]
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
        \/ /\ WriteConflictExists(tid, k)
           \* If there is a write conflict, the transaction must roll back (i.e. it is aborted).
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
-    /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
+          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "aborted"]
+    /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 \* Reads from the local KV store of a shard.
 TransactionRead(tid, k, v) ==
     /\ tid \in ActiveTransactions    
     /\ tid \notin PreparedTransactions
     /\ v = TxnRead(tid, k)
-    /\ \/ /\ ~PrepareConflict(tid, k) \/ mtxnSnapshots[tid]["ignorePrepare"] \in {"true", "force"}
+    /\ \/ /\ ~PrepareConflict(tid, k) \/ txnSnapshots[tid]["ignorePrepare"] \in {"true", "force"}
           /\ v # NoValue
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["readSet"] = @ \cup {k}]
+          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["readSet"] = @ \cup {k}]
        \* Key does not exist.
-       \/ /\ ~PrepareConflict(tid, k) \/ mtxnSnapshots[tid]["ignorePrepare"] \in {"true", "force"}
+       \/ /\ ~PrepareConflict(tid, k) \/ txnSnapshots[tid]["ignorePrepare"] \in {"true", "force"}
           /\ v = NoValue
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_NOTFOUND]
-          /\ UNCHANGED mtxnSnapshots
+          /\ UNCHANGED txnSnapshots
       \* Prepare conflict (transaction is not aborted).
        \/ /\ PrepareConflict(tid, k)
-          /\ mtxnSnapshots[tid]["ignorePrepare"] = "false"
+          /\ txnSnapshots[tid]["ignorePrepare"] = "false"
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_PREPARE_CONFLICT]
-          /\ UNCHANGED mtxnSnapshots
-    /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
+          /\ UNCHANGED txnSnapshots
+    /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 \* Delete a key.
 TransactionRemove(tid, k) ==
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
-    /\ mtxnSnapshots[tid]["ignorePrepare"] = "false"
+    /\ txnSnapshots[tid]["ignorePrepare"] = "false"
     /\ \/ /\ ~WriteConflictExists(tid, k)
           /\ TxnRead(tid, k) # NoValue 
           \* Update the transaction's snapshot data.
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k}, 
+          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k}, 
                                                     ![tid].data[k] = NoValue]
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
        \* If key does not exist in your snapshot then you can't remove it.
        \/ /\ ~WriteConflictExists(tid, k)
           /\ TxnRead(tid, k) = NoValue
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_NOTFOUND]
-          /\ UNCHANGED mtxnSnapshots
+          /\ UNCHANGED txnSnapshots
        \/ /\ WriteConflictExists(tid, k)
           \* If there is a write conflict, the transaction must roll back.
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
-    /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
+          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "aborted"]
+    /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 
 \* Commits a running, active transaction whose transaction id is 'tid' and
@@ -351,8 +351,8 @@ CommitTransaction(tid, commitTs) ==
     /\ (ActiveReadTimestamps \cup CommitTimestamps) # {} => commitTs > Max(ActiveReadTimestamps \cup CommitTimestamps)
     \* /\ ActiveReadTimestamps(n) # {} => commitTs > Max(ActiveReadTimestamps(n)) \* TODO: Check this condition against WT behavior.
     \* Commit the transaction on the KV store and write all updated keys back to the log.
-    /\ mlog' = CommitTxnToLog(tid, commitTs)
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "committed"]
+    /\ txnLog' = CommitTxnToLog(tid, commitTs)
+    /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "committed"]
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ allDurableTs' = allDurableTs
     /\ UNCHANGED <<stableTs, oldestTs>>
@@ -367,9 +367,9 @@ CommitPreparedTransaction(tid, commitTs, durableTs) ==
     \* Commit timestamp must be at least as new as the prepare timestamp. Note
     \* that for prepared (i.e. distributed) transactions, though, commit
     \* timestamps may be chosen older than active read timestamps.
-    /\ commitTs >= mtxnSnapshots[tid].prepareTs
-    /\ mlog' = CommitTxnToLogWithDurable(tid, commitTs, durableTs)
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "committed"]
+    /\ commitTs >= txnSnapshots[tid].prepareTs
+    /\ txnLog' = CommitTxnToLogWithDurable(tid, commitTs, durableTs)
+    /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "committed"]
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ allDurableTs' = allDurableTs
     /\ UNCHANGED <<stableTs, oldestTs>>
@@ -387,8 +387,8 @@ PrepareTransaction(tid, prepareTs) ==
     \* API, but we enforce it for now since we expect MongoDB distributed
     \* transactions to obey this same contract.
     /\ prepareTs > Max(ActiveReadTimestamps)
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "prepared", ![tid]["prepareTs"] = prepareTs]
-    /\ mlog' = PrepareTxnToLog(tid, prepareTs)
+    /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "prepared", ![tid]["prepareTs"] = prepareTs]
+    /\ txnLog' = PrepareTxnToLog(tid, prepareTs)
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ UNCHANGED <<stableTs, oldestTs, allDurableTs>>
 
@@ -396,40 +396,40 @@ PrepareTransaction(tid, prepareTs) ==
 TransactionTruncate(tid, k1, k2) ==
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
-    /\ mtxnSnapshots[tid]["ignorePrepare"] = "false"
+    /\ txnSnapshots[tid]["ignorePrepare"] = "false"
     /\ \/ /\ ~WriteConflictExists(tid, k1)
           /\ TxnRead(tid, k1) # NoValue 
           \* Update the transaction's snapshot data.
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k1}, 
+          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k1}, 
                                                     ![tid].data[k1] = NoValue]
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
        \* If key does not exist in your snapshot then you can't remove it.
        \/ /\ ~WriteConflictExists(tid, k1)
           /\ TxnRead(tid, k1) = NoValue
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_NOTFOUND]
-          /\ UNCHANGED mtxnSnapshots
+          /\ UNCHANGED txnSnapshots
        \/ /\ WriteConflictExists(tid, k1)
           \* If there is a write conflict, the transaction must roll back.
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
-    /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
+          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "aborted"]
+    /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 AbortTransaction(tid) == 
     /\ tid \in ActiveTransactions
-    /\ mtxnSnapshots' = [mtxnSnapshots EXCEPT ![tid]["state"] = "aborted"]
+    /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "aborted"]
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
-    /\ UNCHANGED <<mlog, stableTs, oldestTs, allDurableTs>>
+    /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 SetStableTimestamp(ts) == 
     /\ ts > stableTs
     /\ stableTs' = ts
-    /\ UNCHANGED <<mlog, mtxnSnapshots, txnStatus, oldestTs, allDurableTs>>
+    /\ UNCHANGED <<txnLog, txnSnapshots, txnStatus, oldestTs, allDurableTs>>
 
 SetOldestTimestamp(ts) ==
     /\ ts > oldestTs
     /\ ts <= stableTs
     /\ oldestTs' = ts
-    /\ UNCHANGED <<mlog, mtxnSnapshots, txnStatus, stableTs, allDurableTs>>
+    /\ UNCHANGED <<txnLog, txnSnapshots, txnStatus, stableTs, allDurableTs>>
 
 \* Roll back storage state to the stable timestamp.
 RollbackToStable == 
@@ -437,17 +437,17 @@ RollbackToStable ==
     /\ ActiveTransactions = {}
     /\ stableTs > 0 \* Stable timestamp has been set.
     \* Truncate all log operations at timestamps in front of the stable timestamp.
-    /\ mlog' = SelectSeq(mlog, LAMBDA op : op.ts <= stableTs)
+    /\ txnLog' = SelectSeq(txnLog, LAMBDA op : op.ts <= stableTs)
     /\ stableTs' = stableTs
-    /\ UNCHANGED <<mtxnSnapshots, txnStatus, oldestTs, allDurableTs>>
+    /\ UNCHANGED <<txnSnapshots, txnStatus, oldestTs, allDurableTs>>
 
 \* Explicit initialization for each state variable.
-Init_mlog == <<>>
-Init_mtxnSnapshots == [t \in TxnId |-> [active |-> FALSE, committed |-> FALSE, aborted |-> FALSE]]
+Init_txnLog == <<>>
+Init_txnSnapshots == [t \in TxnId |-> [active |-> FALSE, committed |-> FALSE, aborted |-> FALSE]]
 
 Init == 
-    /\ mlog = <<>>
-    /\ mtxnSnapshots = [t \in TxnId |-> [state |-> "init"]]
+    /\ txnLog = <<>>
+    /\ txnSnapshots = [t \in TxnId |-> [state |-> "init"]]
     /\ txnStatus = [t \in TxnId |-> STATUS_OK]
     /\ stableTs = -1
     /\ oldestTs = -1
