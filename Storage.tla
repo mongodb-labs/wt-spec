@@ -1,5 +1,5 @@
 ---- MODULE Storage ----
-EXTENDS Sequences, Naturals, Integers, Util, TLC
+EXTENDS Sequences, Functions, Naturals, Integers, TLC
 
 \* 
 \* Formal model of the WiredTiger key-value storage interface.
@@ -49,16 +49,6 @@ STATUS_ROLLBACK == "WT_ROLLBACK"
 STATUS_NOTFOUND == "WT_NOTFOUND"
 STATUS_PREPARE_CONFLICT == "WT_PREPARE_CONFLICT"
 
-WCVALUES == {"one", 
-             "majority"}
-
-RCVALUES == {"linearizable", 
-             "snapshot", 
-             "local",
-             "available"}
-
-LogIndices == Nat \ {0}
-
 \* Make values the same as transaction IDs.
 Values == TxnId
 
@@ -68,9 +58,9 @@ NotFoundReadResult == [
     value |-> NoValue
 ]
 
-Max(S) == CHOOSE x \in S : \A y \in S : x >= y
-
 --------------------------------------------------------
+
+Max(S) == CHOOSE x \in S : \A y \in S : x >= y
 
 PrepareOrCommitTimestamps == {IF "ts" \in DOMAIN e THEN e.ts ELSE  0 : e \in Range(txnLog)}
 CommitEntries(lg) == {e \in Range(lg) : ("ts" \in DOMAIN e) /\ ("prepare" \notin DOMAIN e)}
@@ -123,19 +113,6 @@ SnapshotKV(tid, uid, ts, ignorePrepare) ==
         ignorePrepare |-> ignorePrepare,
         concurrentTxns |-> {tc \in TxnId \ {tid} : txnSnapshots[tc]["state"] \in {"active", "prepared"}}
     ]
-    
-
-\* Not currently used but could be considered in future.
-WriteReadConflictExists(n, tid, k) ==
-    \* Exists another running transaction on the same snapshot
-    \* that has written to the same key.
-    \E tOther \in TxnId \ {tid}:
-        \* Transaction is running. 
-        \/ /\ tid \in ActiveTransactions
-           /\ tOther \in ActiveTransactions
-           \* The other transaction is on the same snapshot and read this value.
-           /\ txnSnapshots[tOther].ts = txnSnapshots[tOther].ts
-           /\ k \in txnSnapshots[tOther].readSet
 
 PreparedTxnWroteKeyBehindMe(tOther, tid, k) ==
     \* \E tOther \in TxnId \ {tid}:
@@ -222,7 +199,6 @@ CommitTxnToLog(tid, commitTs) ==
 CommitTxnToLogWithDurable(tid, commitTs, durableTs) == 
     \* Even for read only transactions, we write a no-op to the log.
     Append(txnLog, CommitLogEntry(tid, commitTs) @@ [durableTs |-> durableTs])
-
 
 PrepareTxnToLog(tid, prepareTs) ==
     Append(txnLog, [prepare |-> TRUE, ts |-> prepareTs, tid |-> tid])
