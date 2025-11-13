@@ -15,13 +15,20 @@ EXTENDS Sequences, Functions, Naturals, Integers, TLC
 \* 
 
 
+\* The set of all possible keys. In this spec we assume keys are simply a subset
+\* of natural numbers so that they have a natural total order associated with
+\* them.
 CONSTANT Keys 
+
+\* Set of transaction ids.
 CONSTANT TxnId
+
+\* Set of timestamps.
 CONSTANT Timestamps
 
 CONSTANT NoValue
 
-
+\* Log of prepared/committed transaction ops.
 VARIABLE txnLog
 
 \* Stores snapshots for running transactions on the underlying MongoDB instance.
@@ -373,21 +380,14 @@ TransactionTruncate(tid, k1, k2) ==
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
     /\ txnSnapshots[tid]["ignorePrepare"] = "false"
-    /\ \/ /\ ~WriteConflictExists(tid, k1)
-          /\ TxnRead(tid, k1) # NoValue 
+    /\ \/ /\ \A k \in k1..k2 : ~WriteConflictExists(tid, k)
+          \* /\ TxnRead(tid, k) # NoValue \* Fine if keys don't exist?
           \* Update the transaction's snapshot data.
-          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k1}, 
-                                                    ![tid].data[k1] = NoValue]
+          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup k1..k2, 
+                                                  ![tid].data = [
+                                                        kx \in Keys |-> 
+                                                            IF kx \in k1..k2 THEN NoValue ELSE txnSnapshots[tid].data[kx]]]
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
-       \* If key does not exist in your snapshot then you can't remove it.
-       \/ /\ ~WriteConflictExists(tid, k1)
-          /\ TxnRead(tid, k1) = NoValue
-          /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_NOTFOUND]
-          /\ UNCHANGED txnSnapshots
-       \/ /\ WriteConflictExists(tid, k1)
-          \* If there is a write conflict, the transaction must roll back.
-          /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "aborted"]
     /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 AbortTransaction(tid) == 
@@ -438,8 +438,8 @@ Next ==
     \/ \E tid \in TxnId, k \in Keys, v \in Values : TransactionWrite(tid, k, v)
     \/ \E tid \in TxnId, k \in Keys, v \in (Values \cup {NoValue}) : TransactionRead(tid, k, v)
     \/ \E tid \in TxnId, k \in Keys : TransactionRemove(tid, k)
-    \* \/ \E tid \in TxnId, k1,k2 \in Keys : TransactionTruncate(tid, k1, k2)
-    \/ \E tid \in TxnId, prepareTs \in Timestamps : PrepareTransaction(tid, prepareTs)
+    \/ \E tid \in TxnId, k1,k2 \in Keys : TransactionTruncate(tid, k1, k2)
+    \* \/ \E tid \in TxnId, prepareTs \in Timestamps : PrepareTransaction(tid, prepareTs)
     \/ \E tid \in TxnId, commitTs \in Timestamps : CommitTransaction(tid, commitTs)
     \/ \E tid \in TxnId, commitTs, durableTs \in Timestamps : CommitPreparedTransaction(tid, commitTs, durableTs)
     \/ \E tid \in TxnId : AbortTransaction(tid)
@@ -450,6 +450,7 @@ Next ==
 
 ---------------------------------------------------------------------
 
-Symmetry == Permutations(TxnId) \cup Permutations(Keys)
+\* Symmetry == Permutations(TxnId) \cup Permutations(Keys)
+Symmetry == Permutations(TxnId)
 
 ===============================================================================

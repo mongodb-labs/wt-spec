@@ -267,7 +267,7 @@ def gen_wt_test_from_traces(traces, fname="model_tests.py", max_len=1000, compac
     # print("\n-----\nWT Actions:")
 
     # Open a separate session for all transactions.
-    txns = ["t1", "t2", "t3"]
+    txns = ["txnA", "txnB", "txnC"]
 
     f = open(fname, "w")
     f.write(f"#\n")
@@ -380,8 +380,8 @@ def gen_tla_json_graph(json_graph="states.json", seed=0, specname="Storage", con
         "constants": {
             "WC": "\"majority\"",
             "Nil": "Nil",
-            "Keys": "{k1,k2}",
-            "TxnId": "{t1,t2}",
+            "Keys": "{0,1,2}",
+            "TxnId": "{txnA,txnB}",
             "NoValue": "NoValue",
             "MaxOpsPerTxn": "2",
             "Timestamps": "{1,2,3}",
