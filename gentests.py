@@ -10,7 +10,7 @@ import networkx as nx
 # Experiments in model-based test case generation for the WiredTiger API based on TLA+ model.
 # 
 
-WT_TEST_TEMPLATE = open("test_txn_model_template.py").read()
+WT_TEST_TEMPLATE = open("model_test_template.py").read()
 WT_TEST_FN_TEMPLATE = """
     def test_trace_1(self):
         self.test_setup()
