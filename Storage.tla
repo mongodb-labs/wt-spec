@@ -28,6 +28,7 @@ CONSTANT Timestamps
 
 CONSTANT NoValue
 
+
 \* Log of prepared/committed transaction ops.
 VARIABLE txnLog
 
@@ -46,6 +47,7 @@ VARIABLE oldestTs
 
 \* Tracks the global "all durable timestamp" within the storage layer.
 VARIABLE allDurableTs
+
 
 vars == <<txnLog, txnSnapshots, txnStatus, stableTs, oldestTs, allDurableTs>>
 
