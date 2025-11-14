@@ -148,7 +148,7 @@ WriteConflictExists(tid, k) ==
     \E tOther \in TxnId \ {tid}:
         \* Transaction wrote to this key and is not visible in our snapshot.
         \/ /\ tid \in ActiveTransactions
-           /\ txnSnapshots[tOther]["state"] # "init" 
+           /\ txnSnapshots[tOther]["state"] \in {"active", "prepared"} 
            /\ k \in txnSnapshots[tOther].writeSet
            /\ \/ txnSnapshots[tOther].uid > txnSnapshots[tid].uid
               \* A transaction not in your snapshot wrote to the key.   
@@ -274,7 +274,7 @@ TransactionWrite(tid, k, v) ==
        \/ /\ WriteConflictExists(tid, k)
           \* If there is a write conflict, the transaction must roll back (i.e. it is aborted).
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "aborted"]
+          /\ txnSnapshots' = txnSnapshots
     /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 \* Reads from the local KV store of a shard.
@@ -317,7 +317,7 @@ TransactionRemove(tid, k) ==
        \/ /\ WriteConflictExists(tid, k)
           \* If there is a write conflict, the transaction must roll back.
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
-          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "aborted"]
+          /\ txnSnapshots' = txnSnapshots
     /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 
@@ -442,8 +442,8 @@ Next ==
     \/ \E tid \in TxnId, k \in Keys, v \in Values : TransactionWrite(tid, k, v)
     \/ \E tid \in TxnId, k \in Keys, v \in (Values \cup {NoValue}) : TransactionRead(tid, k, v)
     \/ \E tid \in TxnId, k \in Keys : TransactionRemove(tid, k)
-    \/ \E tid \in TxnId, k1,k2 \in Keys : TransactionTruncate(tid, k1, k2)
-    \* \/ \E tid \in TxnId, prepareTs \in Timestamps : PrepareTransaction(tid, prepareTs)
+    \* \/ \E tid \in TxnId, k1,k2 \in Keys : TransactionTruncate(tid, k1, k2)
+    \/ \E tid \in TxnId, prepareTs \in Timestamps : PrepareTransaction(tid, prepareTs)
     \/ \E tid \in TxnId, commitTs \in Timestamps : CommitTransaction(tid, commitTs)
     \/ \E tid \in TxnId, commitTs, durableTs \in Timestamps : CommitPreparedTransaction(tid, commitTs, durableTs)
     \/ \E tid \in TxnId : AbortTransaction(tid)
