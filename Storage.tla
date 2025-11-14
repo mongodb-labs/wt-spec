@@ -58,6 +58,7 @@ STATUS_ROLLBACK == "WT_ROLLBACK"
 STATUS_NOTFOUND == "WT_NOTFOUND"
 STATUS_PREPARE_CONFLICT == "WT_PREPARE_CONFLICT"
 
+
 \* Make values the same as transaction IDs.
 Values == TxnId
 
@@ -71,16 +72,10 @@ NotFoundReadResult == [
 
 Max(S) == CHOOSE x \in S : \A y \in S : x >= y
 
-PrepareOrCommitTimestamps == {IF "ts" \in DOMAIN e THEN e.ts ELSE  0 : e \in Range(txnLog)}
 CommitEntries(lg) == {e \in Range(lg) : ("ts" \in DOMAIN e) /\ ("prepare" \notin DOMAIN e)}
 CommitOnlyTimestamps(lg) == {e.ts : e \in CommitEntries(lg)}
 CommitTimestamps == {txnLog[i].ts : i \in DOMAIN txnLog}
-
 ActiveReadTimestamps == { IF txnSnapshots[tx]["state"] = "init" THEN 0 ELSE txnSnapshots[tx].ts : tx \in DOMAIN txnSnapshots}
-
-\* Next timestamp to use for a transaction operation.
-NextTs == Max(PrepareOrCommitTimestamps \cup ActiveReadTimestamps) + 1
-
 ActiveTransactions == {tid \in TxnId : txnSnapshots[tid]["state"] \in {"active", "prepared"}}
 PreparedTransactions == {tid \in ActiveTransactions : txnSnapshots[tid]["state"] = "prepared"}
 CommittedTransactions == {tid \in TxnId : txnSnapshots[tid]["state"] = "committed"}
