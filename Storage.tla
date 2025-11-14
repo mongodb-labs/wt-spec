@@ -238,9 +238,9 @@ TransactionPostOpStatus(tid) == txnStatus'[tid]
 \* Globally unique, monotonically increasing identifier for a transaction.
 NextUID == Max({IF txnSnapshots[t]["state"] # "init" THEN txnSnapshots[t]["uid"] ELSE 0 : t \in DOMAIN txnSnapshots}) + 1
 
+\* Start the transaction at given read timestamp 'readTs'.
 StartTransaction(tid, readTs, ignorePrepare) == 
-    \* Start the transaction on the MDB KV store.
-    \* Save a snapshot of the current MongoDB instance at this shard for this transaction to use.
+    \* Save a snapshot of the current KV store instance for this transaction to use.
     /\ tid \notin ActiveTransactions
     \* Only run transactions for a given transactionid once.
     /\ txnSnapshots[tid]["state"] \notin {"committed", "aborted"}
@@ -251,7 +251,7 @@ StartTransaction(tid, readTs, ignorePrepare) ==
     /\ UNCHANGED <<txnLog, stableTs, oldestTs>>
     /\ allDurableTs' = allDurableTs
 
-\* Writes to the local KV store of a shard.
+\* Transactions writes key 'k' with value 'v'.
 TransactionWrite(tid, k, v) == 
     \* The write to this key does not overlap with any writes to the same key
     \* from other, concurrent transactions.
@@ -272,7 +272,7 @@ TransactionWrite(tid, k, v) ==
           /\ txnSnapshots' = txnSnapshots
     /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
-\* Reads from the local KV store of a shard.
+\* Transactions reads key 'k' with value 'v'.
 TransactionRead(tid, k, v) ==
     /\ tid \in ActiveTransactions    
     /\ tid \notin PreparedTransactions
@@ -339,7 +339,7 @@ CommitTransaction(tid, commitTs) ==
 
 CommitPreparedTransaction(tid, commitTs, durableTs) == 
     \* Commit the transaction on the MDB KV store.
-    \* Write all updated keys back to the shard oplog.
+    \* Write all updated keys back to the log.
     /\ commitTs = durableTs \* for now force these equal.
     /\ commitTs > stableTs 
     /\ tid \in ActiveTransactions
