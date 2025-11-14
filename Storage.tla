@@ -377,19 +377,21 @@ PrepareTransaction(tid, prepareTs) ==
     /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ UNCHANGED <<stableTs, oldestTs, allDurableTs>>
 
-\* Truncate a range of all keys "between" k1 and k2.
+\* Truncate (i.e. remove) the range of all keys "between" k1 and k2.
 TransactionTruncate(tid, k1, k2) ==
     /\ tid \in ActiveTransactions
     /\ tid \notin PreparedTransactions
     /\ txnSnapshots[tid]["ignorePrepare"] = "false"
-    /\ \/ /\ \A k \in k1..k2 : ~WriteConflictExists(tid, k)
-          \* /\ TxnRead(tid, k) # NoValue \* Fine if keys don't exist?
-          \* Update the transaction's snapshot data.
-          /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup k1..k2, 
-                                                  ![tid].data = [
-                                                        kx \in Keys |-> 
-                                                            IF kx \in k1..k2 THEN NoValue ELSE txnSnapshots[tid].data[kx]]]
-          /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
+    \* Truncate succeeds even if some keys in the range don't exist.
+    \* But, we only mark keys that exist for conflicts.
+    /\ LET keysPresent == {k \in k1..k2 : TxnRead(tid, k) # NoValue} IN
+        /\ \A k \in keysPresent : ~WriteConflictExists(tid, k)
+        \* Update the transaction's snapshot data.
+        /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup keysPresent, 
+                                                ![tid].data = [
+                                                    kx \in Keys |-> 
+                                                        IF kx \in keysPresent THEN NoValue ELSE txnSnapshots[tid].data[kx]]]
+        /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
 AbortTransaction(tid) == 
