@@ -4,7 +4,9 @@ This is a formal specification of the WiredTiger key-value storage API, defined 
 
 ## Model-Based Testing
 
-We have experimented with an automated, model-based test case generation workflow for checking that the WiredTiger implementation conforms to the model defined in the [`Storage.tla`](Storage.tla) specification. Essentially, we generate WiredTiger unit test cases by computing path coverings of the reachable state space of the `Storage` model. We then use these test cases to check that the WiredTiger implementation conforms to the `Storage` model. A similar "lightweight verification" approach was also explored previously in WiredTiger using a C++ based model definition and randomized workload simulator. You can, for example, see the operation types from the C++ lightweight model-based verification harness [here](https://github.com/wiredtiger/wiredtiger/blob/7baa2123eea89c1854d7434ce7bf26dc8fd2a92d/test/model/src/include/model/driver/kv_workload.h#L1117-L1120).
+We have also experimented with an automated, model-based test case generation workflow for checking that the WiredTiger implementation conforms to the model defined in the [`Storage.tla`](Storage.tla) specification. We generate WiredTiger unit test cases by computing path coverings of the reachable state space of the `Storage` model and then use these to check that the WiredTiger implementation conforms to the `Storage` model. 
+
+A similar "lightweight verification" approach was also explored previously in WiredTiger using a C++ based model definition and randomized workload simulator. You can, for example, see the operation types from the C++ lightweight model-based verification harness [here](https://github.com/wiredtiger/wiredtiger/blob/7baa2123eea89c1854d7434ce7bf26dc8fd2a92d/test/model/src/include/model/driver/kv_workload.h#L1117-L1120).
 
 
 The basic workflow to generate test cases from our TLA+ specification of the storage layer is implemented in the [`testgen.py`](testgen.py) script e.g. to run a small model with 2 transactions and 2 keys, you can execute the following:
