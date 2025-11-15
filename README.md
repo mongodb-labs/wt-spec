@@ -1,4 +1,4 @@
-# Specification of WiredTiger Storage API
+# Specification of the WiredTiger API
 
 This is a formal specification of the WiredTiger key-value storage API, defined in [`Storage.tla`](Storage.tla). It models a core subset of the main transactional API operations supported by WiredTiger. You can conveniently explore the current specification interactively [here](https://will62794.github.io/spectacle/#!/home?specpath=https://raw.githubusercontent.com/mongodb-labs/wt-spec/refs/heads/main/Storage.tla&constants%5BWC%5D=%22majority%22&constants%5BMaxTimestamp%5D=3&constants%5BRC%5D=%22snapshot%22&constants%5BKeys%5D=%7B0%2C1%7D&constants%5BNoValue%5D=%22NoValue%22&constants%5BTxnId%5D=%7BtxnA%2CtxnB%7D&constants%5BNil%5D=%22Nil%22&constants%5BNode%5D=%7Bn%7D&constants%5BTimestamps%5D=%7B1%2C2%2C3%7D).
 
