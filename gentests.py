@@ -363,7 +363,7 @@ def gen_tla_model_trace(json_trace="trace.json", seed=0):
     # print(cmd)
     os.system(cmd)
 
-def gen_tla_json_graph(json_graph="states.json", seed=0, specname="Storage", constants={}, symmetry=False):
+def gen_tla_json_graph(json_graph="states.json", seed=0, specname="Storage", constants={}, overrides={}, symmetry=False):
 
     # Optionally disabled actions.
     disabled_actions = [
@@ -403,6 +403,10 @@ def gen_tla_json_graph(json_graph="states.json", seed=0, specname="Storage", con
     for c in constants:
         config["constants"][c] = constants[c]
 
+    # Optionally passed in action overrides.
+    for o in overrides:
+        config["overrides"][o] = overrides[o]
+
     # Create TLC config file from JSON config.
     model_fname = f"{specname}_gen.cfg"
     with open(model_fname, "w") as f:
@@ -437,6 +441,7 @@ if __name__ == '__main__':
     parser.add_argument('--coverage_pct', type=float, default=1.0, help='Percentage of states to cover')
     parser.add_argument('--compact', action='store_true', help='Generate compact test cases', default=False)
     parser.add_argument('--constants', type=str, default="", help='Constant overrides', nargs='+')
+    parser.add_argument('--overrides', type=str, default="", help='Action overrides (e.g., RollbackToStable FALSE)', nargs='+')
     parser.add_argument('--generate_only', action='store_true', help='Generate state graphs only and return.', default=False)
     parser.add_argument('--use_cached_graphs', action='store_true', help='Load cached JSON state graph')
     parser.add_argument('--parallel_test_split', type=int, default=1, help='Split test generation into N parallel jobs')
@@ -451,6 +456,14 @@ if __name__ == '__main__':
         constants[k] = v
     if len(constants.keys()) > 0:
         print("Using passed in constants:", constants)
+
+    overrides = {}
+    for i in range(0, len(args.overrides), 2):
+        k = args.overrides[i]
+        v = args.overrides[i+1]
+        overrides[k] = v
+    if len(overrides.keys()) > 0:
+        print("Using passed in overrides:", overrides)
 
 
     traces = []
@@ -475,12 +488,12 @@ if __name__ == '__main__':
     now = time.time()
     if not args.use_cached_graphs:
         print("--> Generating JSON state graph...")
-        gen_tla_json_graph("stategraph.json", specname="Storage", constants=constants)
+        gen_tla_json_graph("stategraph.json", specname="Storage", constants=constants, overrides=overrides)
         print("Generated JSON state graph.")
 
         # Generate state graph under symmetry reduction.
         print("--> Generating JSON state graph under symmetry reduction...")
-        gen_tla_json_graph("stategraph_symmetric.json", specname="Storage", constants=constants, symmetry=True)
+        gen_tla_json_graph("stategraph_symmetric.json", specname="Storage", constants=constants, overrides=overrides, symmetry=True)
         print("Generated JSON state graph under symmetry reduction.")
     else:
         print("--> Using cached JSON state graphs.")
