@@ -247,12 +247,13 @@ TransactionWrite(tid, k, v) ==
     \* Transactions always write their own ID as the value, to uniquely identify their writes.
     /\ v = tid
     /\ \/ /\ ~WriteConflictExists(tid, k)
-          \* Update the transaction's snapshot data.
+          \* Update the transaction's local snapshot and write set.
           /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k}, 
-                                                    ![tid].data[k] = tid]
+                                                  ![tid].data[k] = tid]
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
        \/ /\ WriteConflictExists(tid, k)
-          \* If there is a write conflict, the transaction must roll back (i.e. it is aborted).
+          \* If there is a write conflict, we report a rollback status
+          \* and no writes are applied.
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
           /\ txnSnapshots' = txnSnapshots
     /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
@@ -285,7 +286,7 @@ TransactionRemove(tid, k) ==
           /\ TxnRead(tid, k) # NoValue 
           \* Update the transaction's snapshot data.
           /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup {k}, 
-                                                    ![tid].data[k] = NoValue]
+                                                  ![tid].data[k] = NoValue]
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
        \* If key does not exist in your snapshot then you can't remove it.
        \/ /\ ~WriteConflictExists(tid, k)
@@ -293,7 +294,7 @@ TransactionRemove(tid, k) ==
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_NOTFOUND]
           /\ UNCHANGED txnSnapshots
        \/ /\ WriteConflictExists(tid, k)
-          \* If there is a write conflict, the transaction must roll back.
+          \* If there is a write conflict, report a rollback status.
           /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_ROLLBACK]
           /\ txnSnapshots' = txnSnapshots
     /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
@@ -321,14 +322,13 @@ CommitTransaction(tid, commitTs) ==
     /\ UNCHANGED <<stableTs, oldestTs>>
 
 CommitPreparedTransaction(tid, commitTs, durableTs) == 
-    \* Commit the transaction on the MDB KV store.
-    \* Write all updated keys back to the log.
+    \* Commit the transaction on the KV store, and
+    \* write all updated keys back to the log.
     /\ commitTs = durableTs \* for now force these equal.
     /\ commitTs > stableTs 
-    /\ tid \in ActiveTransactions
     /\ tid \in PreparedTransactions
     \* Commit timestamp must be at least as new as the prepare timestamp. Note
-    \* that for prepared (i.e. distributed) transactions, though, commit
+    \* that for prepared transactions, though, is possible that commit
     \* timestamps may be chosen older than active read timestamps.
     /\ commitTs >= txnSnapshots[tid].prepareTs
     /\ txnLog' = CommitTxnToLogWithDurable(tid, commitTs, durableTs)
@@ -337,17 +337,21 @@ CommitPreparedTransaction(tid, commitTs, durableTs) ==
     /\ allDurableTs' = allDurableTs
     /\ UNCHANGED <<stableTs, oldestTs>>
 
+\* 
+\* Prepare transaction at the given prepare timestamp.
+\* 
+\* The prepare timestamp mustn't be less than any active read timestamp (includes
+\* our own). For now, in this model, we impose the condition that prepare
+\* timestamps are strictly greater than any read timestamp. This doesn't appear
+\* to be a strict requirement of the underlying WiredTiger API, but we enforce
+\* it for now since we expect MongoDB distributed transactions to obey this same
+\* contract.
+\* 
 PrepareTransaction(tid, prepareTs) == 
     \* TODO: Eventually make this more permissive and explictly check errors on
     \* invalid commit timestamps w.r.t stable timestamp (?)
     /\ prepareTs > stableTs
     /\ tid \in (ActiveTransactions \ PreparedTransactions)
-    \* Prepare timestamp mustn't be less than any active read timestamp
-    \* (includes our own). For now, in this model, we impose the condition that
-    \* prepare timesatmps are strictly greater than any read timestamp. This
-    \* doesn't appear to be a strict requirement of the underlying WiredTiger
-    \* API, but we enforce it for now since we expect MongoDB distributed
-    \* transactions to obey this same contract.
     /\ prepareTs > Max(ActiveReadTimestamps)
     /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["state"] = "prepared", ![tid]["prepareTs"] = prepareTs]
     /\ txnLog' = PrepareTxnToLog(tid, prepareTs)
