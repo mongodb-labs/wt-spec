@@ -426,9 +426,7 @@ def gen_tla_json_graph(json_graph="states.json", seed=0, specname="Storage", con
     fp = 10 # use a constant FP.
     cmd = f"{tlc} -seed {seed} -dump json {json_graph} -fp {fp} -workers auto -deadlock -config {model_fname} {specname}.tla"
     print(cmd)
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    lines = result.stdout.splitlines()
-    print("\n".join(lines[-4:]))
+    os.system(cmd)
 
 
 if __name__ == '__main__':
