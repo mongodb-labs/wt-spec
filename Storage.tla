@@ -207,20 +207,6 @@ CommitTxnToLogWithDurable(tid, commitTs, durableTs) ==
 PrepareTxnToLog(tid, prepareTs) ==
     Append(txnLog, [prepare |-> TRUE, ts |-> prepareTs, tid |-> tid])
 
-TxnCanStart(tid, readTs) ==
-    \* Cannot start a transaction at a timestamp T if there is another 
-    \* currently prepared transaction at timestamp < T.
-    ~\E tother \in TxnId :
-        /\ tother \in ActiveTransactions
-        /\ txnSnapshots[tother]["state"] = "prepared" 
-        /\ txnSnapshots[tother].ts < readTs 
-
-\* TODO/Question: If a transaction T1 starts at ts > P, and another transaction
-\* then prepares after this at P, it appears that reads in WiredTiger from T1
-\* don't actually encounter prepare conflicts (?) In MongoDB, is it ever
-\* possible to prepare at a timestamp higher than an existing read timestamp? I
-\* don't think so?
-
 PrepareConflict(tid, k) ==
     \* Is there another transaction prepared at T <= readTs that has modified this key?
     \E tother \in TxnId :
@@ -255,8 +241,7 @@ StartTransaction(tid, readTs, ignorePrepare) ==
 TransactionWrite(tid, k, v) == 
     \* The write to this key does not overlap with any writes to the same key
     \* from other, concurrent transactions.
-    /\ tid \in ActiveTransactions
-    /\ tid \notin PreparedTransactions
+    /\ tid \in (ActiveTransactions \ PreparedTransactions)
     \* Transactions that ignore prepare cannot perform updates, though those with "force" can.
     /\ txnSnapshots[tid]["ignorePrepare"] # "true"
     \* Transactions always write their own ID as the value, to uniquely identify their writes.
@@ -274,8 +259,7 @@ TransactionWrite(tid, k, v) ==
 
 \* Transactions reads key 'k' with value 'v'.
 TransactionRead(tid, k, v) ==
-    /\ tid \in ActiveTransactions    
-    /\ tid \notin PreparedTransactions
+    /\ tid \in (ActiveTransactions \ PreparedTransactions)
     /\ v = TxnRead(tid, k)
     /\ \/ /\ ~PrepareConflict(tid, k) \/ txnSnapshots[tid]["ignorePrepare"] \in {"true", "force"}
           /\ v # NoValue
@@ -295,8 +279,7 @@ TransactionRead(tid, k, v) ==
 
 \* Delete a key.
 TransactionRemove(tid, k) ==
-    /\ tid \in ActiveTransactions
-    /\ tid \notin PreparedTransactions
+    /\ tid \in (ActiveTransactions \ PreparedTransactions)
     /\ txnSnapshots[tid]["ignorePrepare"] = "false"
     /\ \/ /\ ~WriteConflictExists(tid, k)
           /\ TxnRead(tid, k) # NoValue 
@@ -358,8 +341,7 @@ PrepareTransaction(tid, prepareTs) ==
     \* TODO: Eventually make this more permissive and explictly check errors on
     \* invalid commit timestamps w.r.t stable timestamp (?)
     /\ prepareTs > stableTs
-    /\ tid \in ActiveTransactions
-    /\ tid \notin PreparedTransactions
+    /\ tid \in (ActiveTransactions \ PreparedTransactions)
     \* Prepare timestamp mustn't be less than any active read timestamp
     \* (includes our own). For now, in this model, we impose the condition that
     \* prepare timesatmps are strictly greater than any read timestamp. This
@@ -373,19 +355,18 @@ PrepareTransaction(tid, prepareTs) ==
     /\ UNCHANGED <<stableTs, oldestTs, allDurableTs>>
 
 \* Truncate (i.e. remove) the range of all keys "between" k1 and k2.
-TransactionTruncate(tid, k1, k2) ==
-    /\ tid \in ActiveTransactions
-    /\ tid \notin PreparedTransactions
+TransactionTruncate(tid, klo, khi) ==
+    /\ tid \in (ActiveTransactions \ PreparedTransactions)
     /\ txnSnapshots[tid]["ignorePrepare"] = "false"
     \* Truncate succeeds even if some keys in the range don't exist.
     \* But, we only mark keys that exist for conflicts.
-    /\ LET keysPresent == {k \in k1..k2 : TxnRead(tid, k) # NoValue} IN
-        /\ \A k \in keysPresent : ~WriteConflictExists(tid, k)
+    /\ LET keysPresentInRange == {k \in klo..khi : TxnRead(tid, k) # NoValue} IN
+        /\ \A k \in keysPresentInRange : ~WriteConflictExists(tid, k)
         \* Update the transaction's snapshot data.
-        /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup keysPresent, 
+        /\ txnSnapshots' = [txnSnapshots EXCEPT ![tid]["writeSet"] = @ \cup keysPresentInRange, 
                                                 ![tid].data = [
                                                     kx \in Keys |-> 
-                                                        IF kx \in keysPresent THEN NoValue ELSE txnSnapshots[tid].data[kx]]]
+                                                        IF kx \in keysPresentInRange THEN NoValue ELSE txnSnapshots[tid].data[kx]]]
         /\ txnStatus' = [txnStatus EXCEPT ![tid] = STATUS_OK]
     /\ UNCHANGED <<txnLog, stableTs, oldestTs, allDurableTs>>
 
