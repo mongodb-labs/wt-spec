@@ -3,6 +3,7 @@ import os
 import random
 import argparse
 import time
+import subprocess
 
 import networkx as nx
 
@@ -425,7 +426,9 @@ def gen_tla_json_graph(json_graph="states.json", seed=0, specname="Storage", con
     fp = 10 # use a constant FP.
     cmd = f"{tlc} -seed {seed} -dump json {json_graph} -fp {fp} -workers auto -deadlock -config {model_fname} {specname}.tla"
     print(cmd)
-    os.system(cmd)
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    lines = result.stdout.splitlines()
+    print("\n".join(lines[-4:]))
 
 
 if __name__ == '__main__':
@@ -473,12 +476,14 @@ if __name__ == '__main__':
     # 
     now = time.time()
     if not args.use_cached_graphs:
+        print("--> Generating JSON state graph...")
         gen_tla_json_graph("stategraph.json", specname="Storage", constants=constants)
-        print("--> Generated JSON state graph.")
+        print("Generated JSON state graph.")
 
         # Generate state graph under symmetry reduction.
+        print("--> Generating JSON state graph under symmetry reduction...")
         gen_tla_json_graph("stategraph_symmetric.json", specname="Storage", constants=constants, symmetry=True)
-        print("--> Generated JSON state graph under symmetry reduction.")
+        print("Generated JSON state graph under symmetry reduction.")
     else:
         print("--> Using cached JSON state graphs.")
 
